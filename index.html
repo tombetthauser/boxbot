@@ -103,6 +103,10 @@
               </div>
             </div>
           </div>
+          <label class="override-label lid-thickness-toggle">
+            <input type="checkbox" name="lidExpandForThickness" id="lidExpandForThickness" checked />
+            Expand lid for cardboard thickness
+          </label>
         </section>
 
         <section>
@@ -179,6 +183,10 @@
                 <input type="checkbox" name="baseShowSheetDimensions" id="baseShowSheetDimensions" />
                 Show sheet dimensions
               </label>
+              <label class="override-label">
+                <input type="checkbox" name="showSheetLetters" id="showSheetLetters" />
+                Show sheet letters
+              </label>
             </div>
           </div>
 
@@ -190,12 +198,7 @@
                 <span class="lock-label">Locked</span>
               </button>
             </div>
-            <p class="lid-lock-hint" id="lid-layout-hint">Matching Box Base</p>
-            <label class="override-label lid-thickness-toggle">
-              <input type="checkbox" name="lidExpandForThickness" id="lidExpandForThickness" checked />
-              Expand lid for cardboard thickness
-            </label>
-            <div class="sheet-orientation lid-layout-dropdown" id="lid-layout-controls" hidden>
+            <div class="sheet-orientation lid-layout-dropdown" id="lid-layout-section" hidden>
               <label class="override-label">
                 <input type="checkbox" name="lidOptimizePerpendicular" id="lidOptimizePerpendicular" checked />
                 Optimize with perpendicular sheets
@@ -250,12 +253,37 @@
     </div>
 
     <section id="output" hidden>
-      <h2>Cutting plan</h2>
+      <div class="section-head">
+        <h2>Cutting plan</h2>
+        <button type="button" id="download-cut-plans" class="secondary-btn" hidden>
+          Download PDF
+        </button>
+      </div>
       <pre id="output-summary"></pre>
-      <p class="note">Printable diagrams will appear here.</p>
+      <div id="cut-plan-viewer" class="cut-plan-viewer" hidden>
+        <div class="cut-plan-viewer-bar">
+          <button type="button" id="cut-plan-prev" class="cut-plan-nav" aria-label="Previous sheet">←</button>
+          <div class="cut-plan-viewer-meta">
+            <strong id="cut-plan-title"></strong>
+            <span id="cut-plan-role"></span>
+            <span id="cut-plan-index-label" class="cut-plan-index"></span>
+          </div>
+          <button type="button" id="cut-plan-next" class="cut-plan-nav" aria-label="Next sheet">→</button>
+        </div>
+        <button type="button" id="cut-plan-stage" class="cut-plan-stage" aria-label="Open full screen cut plan"></button>
+      </div>
+      <p class="note" id="cut-plans-note">Printable diagrams will appear here.</p>
     </section>
   </main>
 
+  <div id="cut-plan-modal" class="cut-plan-modal" hidden>
+    <button type="button" id="cut-plan-modal-close" class="cut-plan-modal-close" aria-label="Close">×</button>
+    <div id="cut-plan-modal-stage" class="cut-plan-modal-stage"></div>
+    <button type="button" id="cut-plan-modal-prev" class="cut-plan-modal-nav cut-plan-modal-prev" aria-label="Previous sheet">←</button>
+    <button type="button" id="cut-plan-modal-next" class="cut-plan-modal-nav cut-plan-modal-next" aria-label="Next sheet">→</button>
+  </div>
+
+  <script src="cutplans.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

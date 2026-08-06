@@ -1,10 +1,23 @@
 const form = document.getElementById("box-form");
 const output = document.getElementById("output");
 const summary = document.getElementById("output-summary");
+const cutPlanViewer = document.getElementById("cut-plan-viewer");
+const cutPlanStage = document.getElementById("cut-plan-stage");
+const cutPlanTitle = document.getElementById("cut-plan-title");
+const cutPlanRole = document.getElementById("cut-plan-role");
+const cutPlanIndexLabel = document.getElementById("cut-plan-index-label");
+const cutPlanPrevBtn = document.getElementById("cut-plan-prev");
+const cutPlanNextBtn = document.getElementById("cut-plan-next");
+const cutPlansNote = document.getElementById("cut-plans-note");
+const downloadCutPlansBtn = document.getElementById("download-cut-plans");
+const cutPlanModal = document.getElementById("cut-plan-modal");
+const cutPlanModalStage = document.getElementById("cut-plan-modal-stage");
+const cutPlanModalClose = document.getElementById("cut-plan-modal-close");
+const cutPlanModalPrev = document.getElementById("cut-plan-modal-prev");
+const cutPlanModalNext = document.getElementById("cut-plan-modal-next");
 const lockBtn = document.getElementById("sheet-lock");
 const lidLayoutLockBtn = document.getElementById("lid-layout-lock");
-const lidLayoutControls = document.getElementById("lid-layout-controls");
-const lidLayoutHint = document.getElementById("lid-layout-hint");
+const lidLayoutSection = document.getElementById("lid-layout-section");
 const sheetWidthInput = document.getElementById("sheetWidth");
 const sheetHeightInput = document.getElementById("sheetHeight");
 const baseCanvas = document.getElementById("base-canvas");
@@ -12,6 +25,9 @@ const lidCanvas = document.getElementById("lid-canvas");
 const baseCtx = baseCanvas.getContext("2d");
 const lidCtx = lidCanvas.getContext("2d");
 let activeCtx = baseCtx;
+/** @type {Array<object>} */
+let latestCutPlans = [];
+let cutPlanIndex = 0;
 
 const DEFAULT_SHEET_WIDTH = 48;
 const DEFAULT_SHEET_HEIGHT = 96;
@@ -50,13 +66,22 @@ function setSheetLocked(locked) {
   lockBtn.querySelector(".lock-label").textContent = locked ? "Locked" : "Unlocked";
 }
 
+function getRadioValue(name) {
+  const checked = form.querySelector(`input[name="${name}"]:checked`);
+  return checked?.value || "horizontal";
+}
+
+function setRadioValue(name, value) {
+  const input = form.querySelector(`input[name="${name}"][value="${value}"]`);
+  if (input) input.checked = true;
+}
+
 function copyBaseLayoutToLid() {
   form.elements.lidOptimizePerpendicular.checked =
     form.elements.baseOptimizePerpendicular.checked;
   form.elements.lidOverrideOrientation.checked =
     form.elements.baseOverrideOrientation.checked;
-  form.elements.lidSheetOrientation.value =
-    form.elements.baseSheetOrientation.value;
+  setRadioValue("lidSheetOrientation", getRadioValue("baseSheetOrientation"));
   form.elements.lidCenterHorizontal.checked =
     form.elements.baseCenterHorizontal.checked;
   form.elements.lidCenterVertical.checked =
@@ -80,13 +105,31 @@ function setLidLayoutLocked(locked) {
   lidLayoutLockBtn.querySelector(".lock-label").textContent = locked
     ? "Locked"
     : "Unlocked";
-  lidLayoutControls.hidden = locked;
-  if (lidLayoutHint) lidLayoutHint.hidden = !locked;
+  if (lidLayoutSection) lidLayoutSection.hidden = locked;
 
   if (locked) {
     copyBaseLayoutToLid();
   }
   drawPreview();
+}
+
+function assignSheetLetters(sheets, startIndex = 0) {
+  const start = Number(startIndex) || 0;
+  const letterAt =
+    window.CutPlans && typeof window.CutPlans.letterForIndex === "function"
+      ? window.CutPlans.letterForIndex
+      : (i) => String.fromCharCode(65 + (i % 26));
+  const ranked = sheets
+    .map((sheet, index) => ({ sheet, index }))
+    .sort((a, b) => {
+      if (Math.abs(a.sheet.y - b.sheet.y) > FIT_EPS) return a.sheet.y - b.sheet.y;
+      if (Math.abs(a.sheet.x - b.sheet.x) > FIT_EPS) return a.sheet.x - b.sheet.x;
+      return a.index - b.index;
+    });
+  ranked.forEach((item, rank) => {
+    item.sheet.letter = letterAt(start + rank);
+  });
+  return start + sheets.length;
 }
 
 function gcdInt(a, b) {
@@ -807,7 +850,7 @@ function lidExpandForThicknessEnabled() {
 
 function readSheetLayoutControls(prefix) {
   const preferred =
-    form.elements[`${prefix}SheetOrientation`]?.value === "vertical"
+    getRadioValue(`${prefix}SheetOrientation`) === "vertical"
       ? "vertical"
       : "horizontal";
   return {
@@ -839,6 +882,8 @@ function drawPartPreview(canvas, partCtx, opts) {
     centerVertical,
     showSheetDimensions,
     showArtworkInterior,
+    showSheetLetters,
+    letterOffset = 0,
   } = opts;
 
   activeCtx = partCtx;
@@ -859,6 +904,7 @@ function drawPartPreview(canvas, partCtx, opts) {
     centerHorizontal,
     centerVertical
   );
+  assignSheetLetters(sheets, letterOffset);
 
   let minX = 0;
   let minY = 0;
@@ -926,6 +972,21 @@ function drawPartPreview(canvas, partCtx, opts) {
     const sw = sheet.w * scale;
     const sh = sheet.h * scale;
     partCtx.strokeRect(sx + 0.5, sy + 0.5, sw, sh);
+  }
+
+  if (showSheetLetters) {
+    partCtx.fillStyle = "#c00";
+    partCtx.font = "bold 12px ui-sans-serif, system-ui, sans-serif";
+    partCtx.textAlign = "center";
+    partCtx.textBaseline = "middle";
+    for (const sheet of sheets) {
+      if (!sheet.letter) continue;
+      partCtx.fillText(
+        sheet.letter,
+        toX(sheet.x + sheet.w / 2),
+        toY(sheet.y + sheet.h / 2)
+      );
+    }
   }
 
   // Containing bounds — gray dotted corners only
@@ -1111,27 +1172,36 @@ function drawPartPreview(canvas, partCtx, opts) {
     }
   }
 
-  return layout;
+  return { layout, sheets };
 }
 
 function drawPreview() {
+  if (lidLayoutLocked) {
+    copyBaseLayoutToLid();
+  }
+
   const shared = readSharedDims();
   const baseControls = readSheetLayoutControls("base");
   const lidControls = lidLayoutLocked
     ? baseControls
     : readSheetLayoutControls("lid");
   const lidGeom = lidGeometryFromShared(shared, lidExpandForThicknessEnabled());
+  const showSheetLetters = Boolean(form.elements.showSheetLetters?.checked);
 
-  drawPartPreview(baseCanvas, baseCtx, {
+  const basePreview = drawPartPreview(baseCanvas, baseCtx, {
     ...shared,
     ...baseControls,
     showArtworkInterior: true,
+    showSheetLetters,
+    letterOffset: 0,
   });
   drawPartPreview(lidCanvas, lidCtx, {
     ...shared,
     ...lidControls,
     ...lidGeom,
     showArtworkInterior: false,
+    showSheetLetters,
+    letterOffset: basePreview.sheets.length,
   });
 }
 
@@ -1152,7 +1222,7 @@ function afterBaseLayoutChange() {
 }
 
 function resetPartLayoutControls(prefix) {
-  form.elements[`${prefix}SheetOrientation`].value = "horizontal";
+  setRadioValue(`${prefix}SheetOrientation`, "horizontal");
   form.elements[`${prefix}OverrideOrientation`].checked = false;
   form.elements[`${prefix}OptimizePerpendicular`].checked = true;
   form.elements[`${prefix}CenterHorizontal`].checked = false;
@@ -1217,10 +1287,71 @@ lidLayoutLockBtn.addEventListener("click", () => {
   setLidLayoutLocked(!lidLayoutLocked);
 });
 
-form.elements.lidExpandForThickness.addEventListener("change", drawPreview);
+form.elements.lidExpandForThickness?.addEventListener("change", drawPreview);
+form.elements.showSheetLetters?.addEventListener("change", drawPreview);
+
+function showCutPlanAt(index) {
+  if (!latestCutPlans.length) return;
+  cutPlanIndex = (index + latestCutPlans.length) % latestCutPlans.length;
+  const plan = latestCutPlans[cutPlanIndex];
+  const title = `Box ${plan.part} — Sheet ${plan.letter}`;
+  const role = plan.role || "";
+  const indexLabel = `${cutPlanIndex + 1} / ${latestCutPlans.length}`;
+
+  if (cutPlanTitle) cutPlanTitle.textContent = title;
+  if (cutPlanRole) cutPlanRole.textContent = role;
+  if (cutPlanIndexLabel) cutPlanIndexLabel.textContent = indexLabel;
+  if (cutPlanStage) cutPlanStage.innerHTML = plan.svg;
+
+  if (cutPlanModalStage && cutPlanModal && !cutPlanModal.hidden) {
+    cutPlanModalStage.innerHTML = plan.svg;
+  }
+
+  const atStart = latestCutPlans.length <= 1;
+  if (cutPlanPrevBtn) cutPlanPrevBtn.disabled = atStart;
+  if (cutPlanNextBtn) cutPlanNextBtn.disabled = atStart;
+  if (cutPlanModalPrev) cutPlanModalPrev.disabled = atStart;
+  if (cutPlanModalNext) cutPlanModalNext.disabled = atStart;
+}
+
+function openCutPlanModal() {
+  if (!latestCutPlans.length || !cutPlanModal) return;
+  cutPlanModal.hidden = false;
+  document.body.style.overflow = "hidden";
+  showCutPlanAt(cutPlanIndex);
+}
+
+function closeCutPlanModal() {
+  if (!cutPlanModal) return;
+  cutPlanModal.hidden = true;
+  document.body.style.overflow = "";
+}
+
+function renderCutPlans(plans) {
+  latestCutPlans = plans;
+  cutPlanIndex = 0;
+
+  if (!plans.length) {
+    if (cutPlanViewer) cutPlanViewer.hidden = true;
+    if (downloadCutPlansBtn) downloadCutPlansBtn.hidden = true;
+    closeCutPlanModal();
+    if (cutPlansNote) {
+      cutPlansNote.hidden = false;
+      cutPlansNote.textContent = "No sheets to diagram.";
+    }
+    return;
+  }
+
+  if (cutPlanViewer) cutPlanViewer.hidden = false;
+  if (downloadCutPlansBtn) downloadCutPlansBtn.hidden = false;
+  if (cutPlansNote) cutPlansNote.hidden = true;
+  showCutPlanAt(0);
+}
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
+
+  if (lidLayoutLocked) copyBaseLayoutToLid();
 
   const shared = readSharedDims();
   const baseControls = readSheetLayoutControls("base");
@@ -1249,6 +1380,53 @@ form.addEventListener("submit", (event) => {
     lidControls.optimize
   );
 
+  const baseSheets = anchorSheetsToPattern(
+    baseLayout.sheets,
+    shared.patternW,
+    shared.patternH,
+    baseControls.centerHorizontal,
+    baseControls.centerVertical
+  );
+  const lidLetterOffset = assignSheetLetters(baseSheets, 0);
+  const lidSheets = anchorSheetsToPattern(
+    lidLayout.sheets,
+    lidGeom.patternW,
+    lidGeom.patternH,
+    lidControls.centerHorizontal,
+    lidControls.centerVertical
+  );
+  assignSheetLetters(lidSheets, lidLetterOffset);
+
+  const CutPlans = window.CutPlans;
+  const basePlans = CutPlans
+    ? CutPlans.buildCutPlansForPart({
+        part: "Base",
+        sheets: baseSheets,
+        outerW: shared.outerW,
+        outerH: shared.outerH,
+        wallDepth: shared.wallDepth,
+        patternW: shared.patternW,
+        patternH: shared.patternH,
+        formatInches,
+        letterOffset: 0,
+      })
+    : [];
+  const lidPlans = CutPlans
+    ? CutPlans.buildCutPlansForPart({
+        part: "Lid",
+        sheets: lidSheets,
+        outerW: lidGeom.outerW,
+        outerH: lidGeom.outerH,
+        wallDepth: lidGeom.wallDepth,
+        patternW: lidGeom.patternW,
+        patternH: lidGeom.patternH,
+        formatInches,
+        letterOffset: lidLetterOffset,
+      })
+    : [];
+  const allPlans = [...basePlans, ...lidPlans];
+  renderCutPlans(allPlans);
+
   function anchorLabel(controls) {
     const parts = [];
     if (controls.centerHorizontal) parts.push("horizontal center");
@@ -1269,15 +1447,58 @@ form.addEventListener("submit", (event) => {
     `Base orientation: ${baseControls.override ? "manual" : "automatic"} → ${baseLayout.baseOrientation || baseLayout.orientation}`,
     `Base sheet anchor: ${anchorLabel(baseControls)}`,
     `Base fit: ${layoutLabel(baseLayout)}`,
+    `Base cut sheets: ${basePlans.map((p) => p.letter).join(", ") || "—"}`,
     "",
     `Lid orientation: ${lidLayoutLocked ? "locked to base" : lidControls.override ? "manual" : "automatic"} → ${lidLayout.baseOrientation || lidLayout.orientation}`,
     `Lid sheet anchor: ${anchorLabel(lidControls)}`,
     `Lid fit: ${layoutLabel(lidLayout)}`,
+    `Lid cut sheets: ${lidPlans.map((p) => p.letter).join(", ") || "—"}`,
     "",
-    "(Cutting diagrams not yet generated.)",
+    `Cut diagrams: ${allPlans.length} sheet page${allPlans.length === 1 ? "" : "s"} ready.`,
   ].join("\n");
 
   output.hidden = false;
+});
+
+if (downloadCutPlansBtn) {
+  downloadCutPlansBtn.addEventListener("click", async () => {
+    if (!window.CutPlans || !latestCutPlans.length) return;
+    downloadCutPlansBtn.disabled = true;
+    try {
+      await window.CutPlans.downloadCutPlansPdf(latestCutPlans);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not export cut plans.");
+    } finally {
+      downloadCutPlansBtn.disabled = false;
+    }
+  });
+}
+
+if (cutPlanPrevBtn) {
+  cutPlanPrevBtn.addEventListener("click", () => showCutPlanAt(cutPlanIndex - 1));
+}
+if (cutPlanNextBtn) {
+  cutPlanNextBtn.addEventListener("click", () => showCutPlanAt(cutPlanIndex + 1));
+}
+if (cutPlanStage) {
+  cutPlanStage.addEventListener("click", openCutPlanModal);
+}
+if (cutPlanModalClose) {
+  cutPlanModalClose.addEventListener("click", closeCutPlanModal);
+}
+if (cutPlanModalPrev) {
+  cutPlanModalPrev.addEventListener("click", () => showCutPlanAt(cutPlanIndex - 1));
+}
+if (cutPlanModalNext) {
+  cutPlanModalNext.addEventListener("click", () => showCutPlanAt(cutPlanIndex + 1));
+}
+
+document.addEventListener("keydown", (event) => {
+  if (!cutPlanModal || cutPlanModal.hidden) return;
+  if (event.key === "Escape") closeCutPlanModal();
+  if (event.key === "ArrowLeft") showCutPlanAt(cutPlanIndex - 1);
+  if (event.key === "ArrowRight") showCutPlanAt(cutPlanIndex + 1);
 });
 
 form.addEventListener("reset", () => {
@@ -1291,13 +1512,28 @@ form.addEventListener("reset", () => {
     form.elements.inchFormat.value = "decimal";
     resetPartLayoutControls("base");
     resetPartLayoutControls("lid");
-    form.elements.lidExpandForThickness.checked = true;
+    if (form.elements.lidExpandForThickness) {
+      form.elements.lidExpandForThickness.checked = true;
+    }
+    if (form.elements.showSheetLetters) {
+      form.elements.showSheetLetters.checked = false;
+    }
     setLidLayoutLocked(true);
     syncOrientationOverride("base");
     syncOrientationOverride("lid");
   });
   output.hidden = true;
   summary.textContent = "";
+  latestCutPlans = [];
+  cutPlanIndex = 0;
+  closeCutPlanModal();
+  if (cutPlanViewer) cutPlanViewer.hidden = true;
+  if (cutPlanStage) cutPlanStage.innerHTML = "";
+  if (downloadCutPlansBtn) downloadCutPlansBtn.hidden = true;
+  if (cutPlansNote) {
+    cutPlansNote.hidden = false;
+    cutPlansNote.textContent = "Printable diagrams will appear here.";
+  }
 });
 
 window.addEventListener("resize", drawPreview);
