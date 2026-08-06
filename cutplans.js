@@ -363,7 +363,7 @@
   }
 
   function fontFamily() {
-    return "ui-sans-serif,system-ui,sans-serif";
+    return "Georgia,'Times New Roman',Times,serif";
   }
 
   /** Draw ticks + length labels for consecutive breaks along one edge. */
@@ -377,6 +377,9 @@
       chainOffset,
       tickLen,
       fontSize,
+      sheetEdge = 0,
+      drawExtensions = false,
+      extensionColor = "#999",
     } = opts;
 
     for (let i = 0; i < breaks.length - 1; i += 1) {
@@ -389,6 +392,17 @@
         const x1 = ox + a * scale;
         const x2 = ox + b * scale;
         const y = oy + chainOffset;
+        if (drawExtensions) {
+          const ySheet = oy + sheetEdge;
+          parts.push(
+            `<line x1="${x1}" y1="${ySheet}" x2="${x1}" y2="${y}" ` +
+              `stroke="${extensionColor}" stroke-width="0.008" stroke-dasharray="0.04 0.035"/>`
+          );
+          parts.push(
+            `<line x1="${x2}" y1="${ySheet}" x2="${x2}" y2="${y}" ` +
+              `stroke="${extensionColor}" stroke-width="0.008" stroke-dasharray="0.04 0.035"/>`
+          );
+        }
         parts.push(
           `<line x1="${x1}" y1="${y - tickLen / 2}" x2="${x1}" y2="${y + tickLen / 2}" ` +
             `stroke="#111" stroke-width="0.014"/>`
@@ -409,6 +423,17 @@
         const y1 = oy + a * scale;
         const y2 = oy + b * scale;
         const x = ox + chainOffset;
+        if (drawExtensions) {
+          const xSheet = ox + sheetEdge;
+          parts.push(
+            `<line x1="${xSheet}" y1="${y1}" x2="${x}" y2="${y1}" ` +
+              `stroke="${extensionColor}" stroke-width="0.008" stroke-dasharray="0.04 0.035"/>`
+          );
+          parts.push(
+            `<line x1="${xSheet}" y1="${y2}" x2="${x}" y2="${y2}" ` +
+              `stroke="${extensionColor}" stroke-width="0.008" stroke-dasharray="0.04 0.035"/>`
+          );
+        }
         parts.push(
           `<line x1="${x - tickLen / 2}" y1="${y1}" x2="${x + tickLen / 2}" y2="${y1}" ` +
             `stroke="#111" stroke-width="0.014"/>`
@@ -429,6 +454,103 @@
         );
       }
     }
+  }
+
+  /**
+   * All unique coordinates along an axis from panels/folds (not only sheet-edge hits).
+   * Used so opposite sides share the same dimension set.
+   */
+  function collectAxisBreaks(sheetW, sheetH, panels, folds) {
+    const xs = [0, sheetW];
+    const ys = [0, sheetH];
+    function addX(v) {
+      if (v >= -EDGE_EPS && v <= sheetW + EDGE_EPS) xs.push(Math.max(0, Math.min(sheetW, v)));
+    }
+    function addY(v) {
+      if (v >= -EDGE_EPS && v <= sheetH + EDGE_EPS) ys.push(Math.max(0, Math.min(sheetH, v)));
+    }
+    for (const p of panels || []) {
+      addX(p.x);
+      addX(p.x + p.w);
+      addY(p.y);
+      addY(p.y + p.h);
+    }
+    for (const f of folds || []) {
+      addX(f.x1);
+      addX(f.x2);
+      addY(f.y1);
+      addY(f.y2);
+    }
+    return {
+      x: normalizeBreaks(xs, sheetW),
+      y: normalizeBreaks(ys, sheetH),
+    };
+  }
+
+  function nearLen(a, b) {
+    return Math.abs(a - b) <= 0.15;
+  }
+
+  /**
+   * Face+flap pair spans (wall+face or face+wall) and optional full wall+face+wall.
+   * Pairs are always emitted so edges like 4" + 37.09" also get an outer 41.09".
+   */
+  function combinedFaceEdgeSpans(breaks, wallDepth, faceSize) {
+    const pairs = [];
+    const full = [];
+    if (!breaks || breaks.length < 3) return { pairs, full };
+    const w = wallDepth;
+    const f = faceSize;
+    if (!(w > MIN_DIM_SEG) || !(f > MIN_DIM_SEG)) return { pairs, full };
+
+    for (let i = 0; i < breaks.length - 3; i += 1) {
+      const a = breaks[i];
+      const b = breaks[i + 1];
+      const c = breaks[i + 2];
+      const d = breaks[i + 3];
+      if (nearLen(b - a, w) && nearLen(c - b, f) && nearLen(d - c, w)) {
+        full.push([a, d]);
+      }
+    }
+
+    const used = [];
+    function overlaps(a, b) {
+      return used.some(([u0, u1]) => Math.abs(u0 - a) < 0.02 && Math.abs(u1 - b) < 0.02);
+    }
+    for (let i = 0; i < breaks.length - 2; i += 1) {
+      const a = breaks[i];
+      const b = breaks[i + 1];
+      const c = breaks[i + 2];
+      const s1 = b - a;
+      const s2 = c - b;
+      if ((nearLen(s1, w) && nearLen(s2, f)) || (nearLen(s1, f) && nearLen(s2, w))) {
+        if (!overlaps(a, c)) {
+          pairs.push([a, c]);
+          used.push([a, c]);
+        }
+      }
+    }
+    return { pairs, full };
+  }
+
+  function appendCombinedDimSpans(parts, spans, opts) {
+    if (!spans || !spans.length) return;
+    for (const [a, b] of spans) {
+      appendEdgeDimChain(parts, [a, b], opts);
+    }
+  }
+
+  function centerPanelBounds(panels) {
+    const center = (panels || []).find((p) => p.name === "center");
+    if (!center) return null;
+    return {
+      x0: center.x,
+      y0: center.y,
+      x1: center.x + center.w,
+      y1: center.y + center.h,
+      cx: center.x + center.w / 2,
+      cy: center.y + center.h / 2,
+    };
   }
 
   function pointOnSheetPerimeter(x, y, sheetW, sheetH) {
@@ -596,6 +718,345 @@
     return out;
   }
 
+  function buildInfoSheetSvg(lines) {
+    const PAGE_W = 8.5;
+    const PAGE_H = 11;
+    const parts = [];
+    parts.push(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_W} ${PAGE_H}" ` +
+        `width="100%" height="100%" style="background:#fff;display:block;">`
+    );
+    parts.push(`<rect x="0" y="0" width="${PAGE_W}" height="${PAGE_H}" fill="#fff"/>`);
+    parts.push(
+      `<text x="0.6" y="0.85" font-family="${fontFamily()}" font-size="0.36" ` +
+        `font-weight="700" fill="#111">BoxBot</text>`
+    );
+    parts.push(
+      `<text x="0.6" y="1.2" font-family="${fontFamily()}" font-size="0.18" fill="#333">` +
+        `Box &amp; artwork information</text>`
+    );
+    let y = 1.7;
+    for (const raw of lines || []) {
+      const line = String(raw);
+      if (!line) {
+        y += 0.16;
+        continue;
+      }
+      const size = 0.145;
+      const weight = line.startsWith("Box type") || line.startsWith("Artwork:") ? "650" : "400";
+      for (const wrapped of wrapText(line, 78)) {
+        parts.push(
+          `<text x="0.6" y="${y}" font-family="${fontFamily()}" font-size="${size}" ` +
+            `font-weight="${weight}" fill="#222">${escapeXml(wrapped)}</text>`
+        );
+        y += size + 0.08;
+        if (y > 10.4) break;
+      }
+      if (y > 10.4) break;
+    }
+    parts.push("</svg>");
+    return parts.join("");
+  }
+
+  /**
+   * Overview page matching the canvas preview: full cardboard sheet grid
+   * plus the cutting net (and artwork on Base).
+   */
+  function buildPatternOverviewSvg({
+    part,
+    sheets = [],
+    outerW,
+    outerH,
+    wallDepth,
+    patternW,
+    patternH,
+    artworkW = 0,
+    artworkH = 0,
+    edgeIn = 0,
+    showArtwork = false,
+    showSheetLetters = true,
+    formatInches,
+    explanation = "",
+  }) {
+    const fmt = typeof formatInches === "function" ? formatInches : (v) => String(v);
+    const PAGE_W = 8.5;
+    const PAGE_H = 11;
+    const panels = patternPanels(outerW, outerH, wallDepth);
+    const folds = patternFoldSegments(outerW, outerH, wallDepth);
+
+    let minX = 0;
+    let minY = 0;
+    let maxX = patternW;
+    let maxY = patternH;
+    for (const sheet of sheets) {
+      minX = Math.min(minX, sheet.x);
+      minY = Math.min(minY, sheet.y);
+      maxX = Math.max(maxX, sheet.x + sheet.w);
+      maxY = Math.max(maxY, sheet.y + sheet.h);
+    }
+    const unionW = Math.max(EPS, maxX - minX);
+    const unionH = Math.max(EPS, maxY - minY);
+
+    const marginX = 0.45;
+    const marginTop = 0.32;
+    const marginBottom = 0.5;
+    const headerH = 1.05;
+    const gutter = 0.62;
+    const availTop = marginTop + headerH;
+    const availW = PAGE_W - marginX * 2;
+    const availH = PAGE_H - availTop - marginBottom;
+    const scale = Math.max(
+      0.03,
+      Math.min((availW - 2 * gutter) / unionW, (availH - 2 * gutter) / unionH)
+    );
+    const drawW = unionW * scale;
+    const drawH = unionH * scale;
+    const originX = marginX + (availW - drawW) / 2;
+    const originY = availTop + (availH - drawH) / 2;
+
+    function toX(inches) {
+      return originX + (inches - minX) * scale;
+    }
+    function toY(inches) {
+      return originY + (inches - minY) * scale;
+    }
+
+    const parts = [];
+    parts.push(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_W} ${PAGE_H}" ` +
+        `width="100%" height="100%" style="background:#fff;display:block;">`
+    );
+    parts.push(`<rect x="0" y="0" width="${PAGE_W}" height="${PAGE_H}" fill="#fff"/>`);
+    parts.push(
+      `<text x="${marginX}" y="${marginTop + 0.2}" font-family="${fontFamily()}" ` +
+        `font-size="0.22" font-weight="700" fill="#111">` +
+        `${escapeXml(`Box ${part} — Full pattern overview`)}</text>`
+    );
+    const explLines = wrapText(explanation || "", 78);
+    explLines.slice(0, 4).forEach((line, i) => {
+      parts.push(
+        `<text x="${marginX}" y="${marginTop + 0.45 + i * 0.16}" font-family="${fontFamily()}" ` +
+          `font-size="0.125" fill="#333">${escapeXml(line)}</text>`
+      );
+    });
+
+    // Cardboard sheets — red outlines (same as canvas)
+    for (const sheet of sheets) {
+      parts.push(
+        `<rect x="${toX(sheet.x)}" y="${toY(sheet.y)}" ` +
+          `width="${sheet.w * scale}" height="${sheet.h * scale}" ` +
+          `fill="none" stroke="#c00" stroke-width="0.014"/>`
+      );
+      if (showSheetLetters && sheet.letter) {
+        parts.push(
+          `<text x="${toX(sheet.x) + 0.08}" y="${toY(sheet.y) + 0.2}" ` +
+            `font-family="${letterFontFamily()}" font-size="0.18" font-weight="300" fill="#c00">` +
+            `${escapeXml(String(sheet.letter).toLowerCase())}</text>`
+        );
+      }
+    }
+
+    // Cutting net — outer silhouette (solid) + center folds (dashed), like the canvas
+    const d = wallDepth;
+    if (d > EPS) {
+      const x0 = toX(0);
+      const y0 = toY(0);
+      const x1 = toX(d);
+      const y1 = toY(d);
+      const x2 = toX(d + outerW);
+      const y2 = toY(d + outerH);
+      const x3 = toX(d * 2 + outerW);
+      const y3 = toY(d * 2 + outerH);
+      const path =
+        `M ${x1} ${y0} L ${x2} ${y0} L ${x2} ${y1} L ${x3} ${y1} L ${x3} ${y2} ` +
+        `L ${x2} ${y2} L ${x2} ${y3} L ${x1} ${y3} L ${x1} ${y2} L ${x0} ${y2} ` +
+        `L ${x0} ${y1} L ${x1} ${y1} Z`;
+      parts.push(
+        `<path d="${path}" fill="none" stroke="#111" stroke-width="0.014"/>`
+      );
+      parts.push(
+        `<rect x="${x1}" y="${y1}" width="${outerW * scale}" height="${outerH * scale}" ` +
+          `fill="none" stroke="#111" stroke-width="0.014" stroke-dasharray="0.1 0.07"/>`
+      );
+    } else {
+      parts.push(
+        `<rect x="${toX(0)}" y="${toY(0)}" width="${outerW * scale}" height="${outerH * scale}" ` +
+          `fill="none" stroke="#111" stroke-width="0.014"/>`
+      );
+    }
+
+    if (showArtwork && artworkW > EPS && artworkH > EPS) {
+      const ax = wallDepth + edgeIn;
+      const ay = wallDepth + edgeIn;
+      parts.push(
+        `<rect x="${toX(ax)}" y="${toY(ay)}" ` +
+          `width="${artworkW * scale}" height="${artworkH * scale}" ` +
+          `fill="none" stroke="#888" stroke-width="0.012" stroke-dasharray="0.05 0.04"/>`
+      );
+      if (edgeIn > EPS) {
+        const label = `${fmt(edgeIn)} padding`;
+        const lx = toX(ax + artworkW / 2);
+        const ly = toY(ay) + 0.14;
+        parts.push(
+          `<text x="${lx}" y="${ly}" font-family="${fontFamily()}" font-size="0.11" ` +
+            `fill="#555" text-anchor="middle">${escapeXml(label)}</text>`
+        );
+      }
+    }
+
+    // Pattern overall dims
+    const patternLeft = toX(0);
+    const patternTop = toY(0);
+    const patternRight = toX(patternW);
+    const patternBottom = toY(patternH);
+    const dimGap = Math.min(gutter * 0.55, 0.35);
+
+    parts.push(
+      `<line x1="${patternLeft}" y1="${patternBottom + dimGap}" ` +
+        `x2="${patternRight}" y2="${patternBottom + dimGap}" stroke="#111" stroke-width="0.012"/>`
+    );
+    parts.push(
+      `<text x="${(patternLeft + patternRight) / 2}" y="${patternBottom + dimGap + 0.16}" ` +
+        `font-family="${fontFamily()}" font-size="0.12" fill="#111" text-anchor="middle">` +
+        `${escapeXml(fmt(patternW))}</text>`
+    );
+    const vx = patternLeft - dimGap;
+    parts.push(
+      `<line x1="${vx}" y1="${patternTop}" x2="${vx}" y2="${patternBottom}" ` +
+        `stroke="#111" stroke-width="0.012"/>`
+    );
+    const cx = vx - 0.14;
+    const cy = (patternTop + patternBottom) / 2;
+    parts.push(
+      `<text x="${cx}" y="${cy}" font-family="${fontFamily()}" font-size="0.12" fill="#111" ` +
+        `text-anchor="middle" dominant-baseline="middle" ` +
+        `transform="rotate(-90 ${cx} ${cy})">${escapeXml(fmt(patternH))}</text>`
+    );
+
+    // Outer face dims
+    const faceLeft = toX(wallDepth);
+    const faceTop = toY(wallDepth);
+    const faceRight = toX(wallDepth + outerW);
+    const faceBottom = toY(wallDepth + outerH);
+    const faceGap = dimGap * 0.55;
+    parts.push(
+      `<line x1="${faceLeft}" y1="${faceBottom + faceGap}" ` +
+        `x2="${faceRight}" y2="${faceBottom + faceGap}" stroke="#111" stroke-width="0.01"/>`
+    );
+    parts.push(
+      `<text x="${(faceLeft + faceRight) / 2}" y="${faceBottom + faceGap + 0.14}" ` +
+        `font-family="${fontFamily()}" font-size="0.11" fill="#111" text-anchor="middle">` +
+        `${escapeXml(fmt(outerW))}</text>`
+    );
+    const fx = faceLeft - faceGap;
+    parts.push(
+      `<line x1="${fx}" y1="${faceTop}" x2="${fx}" y2="${faceBottom}" ` +
+        `stroke="#111" stroke-width="0.01"/>`
+    );
+    const fcx = fx - 0.12;
+    const fcy = (faceTop + faceBottom) / 2;
+    parts.push(
+      `<text x="${fcx}" y="${fcy}" font-family="${fontFamily()}" font-size="0.11" fill="#111" ` +
+        `text-anchor="middle" dominant-baseline="middle" ` +
+        `transform="rotate(-90 ${fcx} ${fcy})">${escapeXml(fmt(outerH))}</text>`
+    );
+
+    if (wallDepth > EPS) {
+      parts.push(
+        `<line x1="${faceRight}" y1="${faceBottom + faceGap}" ` +
+          `x2="${toX(wallDepth * 2 + outerW)}" y2="${faceBottom + faceGap}" ` +
+          `stroke="#111" stroke-width="0.01"/>`
+      );
+      parts.push(
+        `<text x="${(faceRight + toX(wallDepth * 2 + outerW)) / 2}" y="${faceBottom + faceGap + 0.14}" ` +
+          `font-family="${fontFamily()}" font-size="0.1" fill="#111" text-anchor="middle">` +
+          `${escapeXml(fmt(wallDepth))}</text>`
+      );
+    }
+
+    void panels;
+    void folds;
+    parts.push("</svg>");
+    return parts.join("");
+  }
+
+  /** Short wide line-arrow in page bottom-left; points toward pattern-up. */
+  function appendUpArrow(parts, plan) {
+    const PAGE_H = 11;
+    const x0 = 0.45;
+    const y0 = PAGE_H - 1.35;
+    const len = 0.42;
+    const head = 0.14;
+    const half = 0.11;
+    // Unrotated: up = toward top of page. Rotated landscape sheet: up = toward left.
+    const dir = plan.rotated ? "left" : "up";
+
+    if (dir === "up") {
+      const tipX = x0 + half;
+      const tipY = y0;
+      const baseY = y0 + len;
+      parts.push(
+        `<line x1="${tipX}" y1="${tipY + head}" x2="${tipX}" y2="${baseY}" ` +
+          `stroke="#111" stroke-width="0.02" stroke-linecap="butt"/>`
+      );
+      parts.push(
+        `<line x1="${tipX - half}" y1="${tipY + head}" x2="${tipX}" y2="${tipY}" ` +
+          `stroke="#111" stroke-width="0.02" stroke-linecap="butt"/>`
+      );
+      parts.push(
+        `<line x1="${tipX + half}" y1="${tipY + head}" x2="${tipX}" y2="${tipY}" ` +
+          `stroke="#111" stroke-width="0.02" stroke-linecap="butt"/>`
+      );
+    } else {
+      const tipX = x0;
+      const tipY = y0 + half;
+      const baseX = x0 + len;
+      parts.push(
+        `<line x1="${tipX + head}" y1="${tipY}" x2="${baseX}" y2="${tipY}" ` +
+          `stroke="#111" stroke-width="0.02" stroke-linecap="butt"/>`
+      );
+      parts.push(
+        `<line x1="${tipX + head}" y1="${tipY - half}" x2="${tipX}" y2="${tipY}" ` +
+          `stroke="#111" stroke-width="0.02" stroke-linecap="butt"/>`
+      );
+      parts.push(
+        `<line x1="${tipX + head}" y1="${tipY + half}" x2="${tipX}" y2="${tipY}" ` +
+          `stroke="#111" stroke-width="0.02" stroke-linecap="butt"/>`
+      );
+    }
+  }
+
+  function appendLineKey(parts) {
+    const PAGE_W = 8.5;
+    const PAGE_H = 11;
+    const x = PAGE_W - 2.15;
+    let y = PAGE_H - 1.45;
+    const fs = 0.115;
+    const gap = 0.2;
+    const lineW = 0.42;
+    const samples = [
+      { label: "Cut", render: (x1, y1, x2) =>
+          `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y1}" stroke="#000" stroke-width="0.022"/>` },
+      { label: "Fold", render: (x1, y1, x2) =>
+          `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y1}" stroke="#111" stroke-width="0.02" stroke-dasharray="0.1 0.06"/>` },
+      { label: "Artwork", render: (x1, y1, x2) =>
+          `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y1}" stroke="#888" stroke-width="0.016" stroke-dasharray="0.05 0.035"/>` },
+      { label: "Sheet edge", render: (x1, y1, x2) =>
+          `<line x1="${x1}" y1="${y1 - 0.014}" x2="${x2}" y2="${y1 - 0.014}" stroke="#000" stroke-width="0.018"/>` +
+          `<line x1="${x1}" y1="${y1 + 0.014}" x2="${x2}" y2="${y1 + 0.014}" stroke="#c00" stroke-width="0.018"/>` },
+    ];
+    for (const item of samples) {
+      const x1 = x;
+      const x2 = x + lineW;
+      parts.push(item.render(x1, y, x2));
+      parts.push(
+        `<text x="${x2 + 0.08}" y="${y}" font-family="${fontFamily()}" font-size="${fs}" ` +
+          `fill="#222" dominant-baseline="middle">${escapeXml(item.label)}</text>`
+      );
+      y += gap;
+    }
+  }
+
   function buildSheetCutPlanSvg(plan, formatInches) {
     const fmt = typeof formatInches === "function" ? formatInches : (v) => String(v);
     const PAGE_W = 8.5;
@@ -603,20 +1064,22 @@
     const sheetW = plan.sheetW;
     const sheetH = plan.sheetH;
 
-    const marginX = 0.4;
-    const marginTop = 0.28;
-    const marginBottom = 0.32;
-    const headerH = 1.05;
-    const gutter = 0.52;
+    const marginX = 0.38;
+    const marginTop = 0.26;
+    const marginBottom = 1.55;
+    const headerH = 1.0;
+    const gutter = 0.92;
     const tickLen = 0.07;
     const cutStroke = 0.016;
     const borderStroke = 0.022;
     const foldStroke = 0.018;
     const titleSize = 0.2;
     const roleSize = 0.145;
-    const dimSize = 0.135;
-    const letterSize = 0.28;
+    const dimSize = 0.12;
+    const combinedDimSize = 0.125;
+    const letterSize = 0.26;
     const foldLabelSize = 0.12;
+    const artStroke = 0.012;
 
     const descLines = wrapText(plan.role || "", 78);
     const availTop = marginTop + headerH;
@@ -635,20 +1098,32 @@
     const ox = contentX + gutter;
     const oy = contentY + gutter;
 
-    const breaks = collectEdgeBreaks(sheetW, sheetH, plan.panels, plan.folds);
-    const parts = [];
+    const axis = collectAxisBreaks(sheetW, sheetH, plan.panels, plan.folds);
+    // Same break set on opposite sides so left mirrors right and bottom mirrors top.
+    const xBreaks = axis.x;
+    const yBreaks = axis.y;
+    const wallDepth = plan.wallDepth || 0;
+    const outerW = plan.outerW || 0;
+    const outerH = plan.outerH || 0;
+    const faceAlongX = plan.rotated ? outerH : outerW;
+    const faceAlongY = plan.rotated ? outerW : outerH;
+    const combinedX = combinedFaceEdgeSpans(xBreaks, wallDepth, faceAlongX);
+    const combinedY = combinedFaceEdgeSpans(yBreaks, wallDepth, faceAlongY);
+    const centerBounds = centerPanelBounds(plan.panels);
+    const letterDisplay = String(plan.letter || "").toLowerCase();
+    const letterTitle = letterDisplay ? letterDisplay.toUpperCase() : "";
 
+    const parts = [];
     parts.push(
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PAGE_W} ${PAGE_H}" ` +
         `width="100%" height="100%" style="background:#fff;display:block;">`
     );
     parts.push(`<rect x="0" y="0" width="${PAGE_W}" height="${PAGE_H}" fill="#fff"/>`);
 
-    // Header
     parts.push(
       `<text x="${marginX}" y="${marginTop + 0.18}" font-family="${fontFamily()}" ` +
         `font-size="${titleSize}" font-weight="700" fill="#111">` +
-        `${escapeXml(`Box ${plan.part} — Sheet ${plan.letter}`)}</text>`
+        `${escapeXml(`Box ${plan.part} — Sheet ${letterTitle}`)}</text>`
     );
     descLines.slice(0, 4).forEach((line, i) => {
       parts.push(
@@ -657,7 +1132,7 @@
       );
     });
 
-    // Double outer border: black outside, red inside, edges touching (no gap)
+    // Double outer border
     parts.push(
       `<rect x="${ox - borderStroke}" y="${oy - borderStroke}" ` +
         `width="${drawW + borderStroke * 2}" height="${drawH + borderStroke * 2}" ` +
@@ -668,22 +1143,55 @@
         `fill="none" stroke="#c00" stroke-width="${borderStroke}"/>`
     );
 
-    // Corner letter badge
+    // Sheet letter — large lowercase in page top-right
     parts.push(
-      `<text x="${ox + 0.18}" y="${oy + 0.34}" font-family="${fontFamily()}" ` +
-        `font-size="${letterSize}" font-weight="700" fill="#111">${escapeXml(plan.letter)}</text>`
+      `<text x="${PAGE_W - 0.45}" y="${marginTop + 0.55}" font-family="${letterFontFamily()}" ` +
+        `font-size="0.85" font-weight="300" fill="#111" text-anchor="end">` +
+        `${escapeXml(letterDisplay)}</text>`
     );
 
-    const solidCuts = collectSolidCutSegments(
-      plan.panels,
-      plan.folds,
-      sheetW,
-      sheetH
-    );
+    const solidCuts = collectSolidCutSegments(plan.panels, plan.folds, sheetW, sheetH);
     const visibleFolds = collectVisibleFolds(plan.folds, sheetW, sheetH);
 
-    // Interior cut edges only (no perimeter — outer border covers that;
-    // no fold edges — dashed lines cover those)
+    // Subtle extensions from folds / flap outer edges (deduped)
+    const extKeys = new Set();
+    function maybeExtV(x) {
+      const key = `v:${roundCoord(x)}`;
+      if (extKeys.has(key)) return;
+      extKeys.add(key);
+      parts.push(
+        `<line x1="${ox + x * scale}" y1="${oy}" x2="${ox + x * scale}" y2="${oy + drawH}" ` +
+          `stroke="#bbb" stroke-width="0.006" stroke-dasharray="0.03 0.028"/>`
+      );
+    }
+    function maybeExtH(y) {
+      const key = `h:${roundCoord(y)}`;
+      if (extKeys.has(key)) return;
+      extKeys.add(key);
+      parts.push(
+        `<line x1="${ox}" y1="${oy + y * scale}" x2="${ox + drawW}" y2="${oy + y * scale}" ` +
+          `stroke="#bbb" stroke-width="0.006" stroke-dasharray="0.03 0.028"/>`
+      );
+    }
+    for (const f of visibleFolds) {
+      if (isHorizontalSeg(f)) {
+        maybeExtV(f.x1);
+        maybeExtV(f.x2);
+      } else if (isVerticalSeg(f)) {
+        maybeExtH(f.y1);
+        maybeExtH(f.y2);
+      }
+    }
+    for (const s of solidCuts) {
+      if (isHorizontalSeg(s)) {
+        maybeExtV(s.x1);
+        maybeExtV(s.x2);
+      } else if (isVerticalSeg(s)) {
+        maybeExtH(s.y1);
+        maybeExtH(s.y2);
+      }
+    }
+
     for (const s of solidCuts) {
       parts.push(
         `<line x1="${ox + s.x1 * scale}" y1="${oy + s.y1 * scale}" ` +
@@ -692,7 +1200,6 @@
       );
     }
 
-    // Fold lines — dashed only, never under a solid stroke
     for (const f of visibleFolds) {
       parts.push(
         `<line x1="${ox + f.x1 * scale}" y1="${oy + f.y1 * scale}" ` +
@@ -702,73 +1209,183 @@
       );
     }
 
-    // Edge dimension chains
-    appendEdgeDimChain(parts, breaks.top, {
-      ox,
+    // Artwork dotted rect (Base only) + padding note along inner edge
+    if (
+      plan.showArtwork &&
+      plan.artwork &&
+      plan.artwork.w > EPS &&
+      plan.artwork.h > EPS
+    ) {
+      const a = plan.artwork;
+      parts.push(
+        `<rect x="${ox + a.x * scale}" y="${oy + a.y * scale}" ` +
+          `width="${a.w * scale}" height="${a.h * scale}" ` +
+          `fill="none" stroke="#888" stroke-width="${artStroke}" ` +
+          `stroke-dasharray="0.05 0.04"/>`
+      );
+      const edgePad = Number(plan.edgeIn) || 0;
+      if (edgePad > EPS && a.w * scale > 0.45 && a.h * scale > 0.35) {
+        const label = `${fmt(edgePad)} padding`;
+        const lx = ox + (a.x + a.w / 2) * scale;
+        const ly = oy + a.y * scale + Math.min(0.16, a.h * scale * 0.2);
+        parts.push(
+          `<text x="${lx}" y="${ly}" font-family="${fontFamily()}" font-size="${foldLabelSize}" ` +
+            `fill="#555" text-anchor="middle" dominant-baseline="middle">` +
+            `${escapeXml(label)}</text>`
+        );
+      }
+    }
+
+    const segOff = gutter * 0.36;
+    const pairOff = gutter * 0.58;
+    const fullOff = gutter * 0.8;
+    const edgeOpts = { ox, scale, fmt, tickLen, fontSize: dimSize, drawExtensions: true };
+
+    appendEdgeDimChain(parts, xBreaks, {
+      ...edgeOpts,
       oy,
-      scale,
-      fmt,
       horizontal: true,
-      chainOffset: -gutter * 0.55,
-      tickLen,
-      fontSize: dimSize,
+      chainOffset: -segOff,
+      sheetEdge: 0,
     });
-    appendEdgeDimChain(parts, breaks.bottom, {
-      ox,
+    appendEdgeDimChain(parts, xBreaks, {
+      ...edgeOpts,
       oy: oy + drawH,
-      scale,
-      fmt,
       horizontal: true,
-      chainOffset: gutter * 0.55,
-      tickLen,
-      fontSize: dimSize,
+      chainOffset: segOff,
+      sheetEdge: 0,
     });
-    appendEdgeDimChain(parts, breaks.left, {
-      ox,
+    appendEdgeDimChain(parts, yBreaks, {
+      ...edgeOpts,
       oy,
-      scale,
-      fmt,
       horizontal: false,
-      chainOffset: -gutter * 0.55,
-      tickLen,
-      fontSize: dimSize,
+      chainOffset: -segOff,
+      sheetEdge: 0,
     });
-    appendEdgeDimChain(parts, breaks.right, {
+    appendEdgeDimChain(parts, yBreaks, {
+      ...edgeOpts,
       ox: ox + drawW,
       oy,
-      scale,
-      fmt,
       horizontal: false,
-      chainOffset: gutter * 0.55,
-      tickLen,
-      fontSize: dimSize,
+      chainOffset: segOff,
+      sheetEdge: 0,
     });
 
-    // Interior fold length labels
-    for (const f of plan.folds) {
+    const pairOpts = {
+      ox,
+      scale,
+      fmt,
+      tickLen,
+      fontSize: combinedDimSize,
+      drawExtensions: true,
+    };
+    appendCombinedDimSpans(parts, combinedX.pairs, {
+      ...pairOpts,
+      oy,
+      horizontal: true,
+      chainOffset: -pairOff,
+      sheetEdge: 0,
+    });
+    appendCombinedDimSpans(parts, combinedX.pairs, {
+      ...pairOpts,
+      oy: oy + drawH,
+      horizontal: true,
+      chainOffset: pairOff,
+      sheetEdge: 0,
+    });
+    appendCombinedDimSpans(parts, combinedY.pairs, {
+      ...pairOpts,
+      oy,
+      horizontal: false,
+      chainOffset: -pairOff,
+      sheetEdge: 0,
+    });
+    appendCombinedDimSpans(parts, combinedY.pairs, {
+      ...pairOpts,
+      ox: ox + drawW,
+      oy,
+      horizontal: false,
+      chainOffset: pairOff,
+      sheetEdge: 0,
+    });
+
+    appendCombinedDimSpans(parts, combinedX.full, {
+      ...pairOpts,
+      oy,
+      horizontal: true,
+      chainOffset: -fullOff,
+      sheetEdge: 0,
+    });
+    appendCombinedDimSpans(parts, combinedX.full, {
+      ...pairOpts,
+      oy: oy + drawH,
+      horizontal: true,
+      chainOffset: fullOff,
+      sheetEdge: 0,
+    });
+    appendCombinedDimSpans(parts, combinedY.full, {
+      ...pairOpts,
+      oy,
+      horizontal: false,
+      chainOffset: -fullOff,
+      sheetEdge: 0,
+    });
+    appendCombinedDimSpans(parts, combinedY.full, {
+      ...pairOpts,
+      ox: ox + drawW,
+      oy,
+      horizontal: false,
+      chainOffset: fullOff,
+      sheetEdge: 0,
+    });
+
+    // Fold length labels — always outside the center panel (on the flap side)
+    const foldOff = 0.14;
+    for (const f of visibleFolds) {
       const len = foldLength(f);
       if (len < 0.75) continue;
       const mx = (f.x1 + f.x2) / 2;
       const my = (f.y1 + f.y2) / 2;
-      if (pointOnSheetPerimeter(mx, my, sheetW, sheetH)) continue;
-      const nearEdgeBand = 0.35;
-      if (
-        mx < nearEdgeBand ||
-        my < nearEdgeBand ||
-        mx > sheetW - nearEdgeBand ||
-        my > sheetH - nearEdgeBand
-      ) {
-        continue;
+      const horiz = isHorizontalSeg(f);
+      let lx;
+      let ly;
+      if (horiz) {
+        let outsideUp = true;
+        if (centerBounds) {
+          const onTop = nearEdge(my, centerBounds.y0);
+          const onBot = nearEdge(my, centerBounds.y1);
+          if (onTop) outsideUp = true;
+          else if (onBot) outsideUp = false;
+          else outsideUp = my < centerBounds.cy;
+        }
+        lx = ox + mx * scale;
+        ly = oy + my * scale + (outsideUp ? -foldOff : foldOff);
+        parts.push(
+          `<text x="${lx}" y="${ly}" font-family="${fontFamily()}" font-size="${foldLabelSize}" ` +
+            `fill="#222" text-anchor="middle" dominant-baseline="middle">` +
+            `${escapeXml(fmt(len))}</text>`
+        );
+      } else {
+        let outsideLeft = true;
+        if (centerBounds) {
+          const onLeft = nearEdge(mx, centerBounds.x0);
+          const onRight = nearEdge(mx, centerBounds.x1);
+          if (onLeft) outsideLeft = true;
+          else if (onRight) outsideLeft = false;
+          else outsideLeft = mx < centerBounds.cx;
+        }
+        lx = ox + mx * scale + (outsideLeft ? -foldOff : foldOff);
+        ly = oy + my * scale;
+        parts.push(
+          `<text x="${lx}" y="${ly}" font-family="${fontFamily()}" font-size="${foldLabelSize}" ` +
+            `fill="#222" text-anchor="middle" dominant-baseline="middle" ` +
+            `transform="rotate(-90 ${lx} ${ly})">${escapeXml(fmt(len))}</text>`
+        );
       }
-      const horiz = Math.abs(f.y2 - f.y1) < EPS;
-      const lx = ox + mx * scale + (horiz ? 0 : 0.1);
-      const ly = oy + my * scale + (horiz ? -0.1 : 0);
-      parts.push(
-        `<text x="${lx}" y="${ly}" font-family="${fontFamily()}" font-size="${foldLabelSize}" ` +
-          `fill="#222" text-anchor="middle" dominant-baseline="middle">` +
-          `${escapeXml(fmt(len))}</text>`
-      );
     }
+
+    appendUpArrow(parts, plan);
+    appendLineKey(parts);
 
     parts.push("</svg>");
     return parts.join("");
@@ -780,14 +1397,18 @@
   }
 
   function letterForIndex(i) {
-    // A..Z, then AA, AB, ...
+    // a..z, then aa, ab, ...
     let n = i;
     let s = "";
     do {
-      s = String.fromCharCode(65 + (n % 26)) + s;
+      s = String.fromCharCode(97 + (n % 26)) + s;
       n = Math.floor(n / 26) - 1;
     } while (n >= 0);
     return s;
+  }
+
+  function letterFontFamily() {
+    return "Georgia,'Times New Roman',serif";
   }
 
   /**
@@ -803,6 +1424,10 @@
     wallDepth,
     patternW,
     patternH,
+    artworkW = 0,
+    artworkH = 0,
+    edgeIn = 0,
+    showArtwork = false,
     formatInches,
     letterOffset = 0,
   }) {
@@ -811,12 +1436,44 @@
     const sorted = [...sheets].sort(sheetSortKey);
     const plans = [];
     const offset = Number(letterOffset) || 0;
+    const artPattern = {
+      x: wallDepth + edgeIn,
+      y: wallDepth + edgeIn,
+      w: artworkW,
+      h: artworkH,
+    };
+    const includeArt = Boolean(showArtwork) && artworkW > EPS && artworkH > EPS;
 
     sorted.forEach((sheet, i) => {
       const local = sheetLocalGeometry(sheet, outerW, outerH, wallDepth);
       const portrait = sheetToPortraitPlan(sheet, local);
       const letter = letterForIndex(i + offset);
       const role = describeSheetUse(part, local.panels);
+
+      let artwork = null;
+      if (includeArt) {
+        const sheetRect = { x: sheet.x, y: sheet.y, w: sheet.w, h: sheet.h };
+        const hit = intersectRects(artPattern, sheetRect);
+        if (hit) {
+          const localArt = {
+            x: hit.x - sheet.x,
+            y: hit.y - sheet.y,
+            w: hit.w,
+            h: hit.h,
+            name: "artwork",
+          };
+          const port = rectToPortrait(localArt, sheet.w, sheet.h, portrait.rotated);
+          artwork = {
+            x: port.x,
+            y: port.y,
+            w: port.w,
+            h: port.h,
+            fullW: artworkW,
+            fullH: artworkH,
+          };
+        }
+      }
+
       const plan = {
         letter,
         part,
@@ -827,6 +1484,12 @@
         folds: portrait.folds,
         orientation: sheet.orientation,
         rotated: portrait.rotated,
+        wallDepth,
+        outerW,
+        outerH,
+        artwork,
+        showArtwork: includeArt,
+        edgeIn,
       };
       plan.svg = buildSheetCutPlanSvg(plan, formatInches);
       plans.push(plan);
@@ -970,9 +1633,12 @@
 
       for (let i = 0; i < allPlans.length; i += 1) {
         const plan = allPlans[i];
-        const scaleNote =
-          `Box ${plan.part} — Sheet ${plan.letter}  ·  ` +
-          `Reference diagram — labeled measurements are actual inches`;
+        const scaleNote = plan.isInfo || plan.isCover
+          ? "BoxBot — box & artwork information"
+          : plan.isOverview
+            ? `Box ${plan.part} — full pattern overview`
+            : `Box ${plan.part} — Sheet ${String(plan.letter || "").toUpperCase()}  ·  ` +
+              `Reference diagram — labeled measurements are actual inches`;
 
         // SVG viewBox is already 8.5×11; rasterize at page size (~1:1).
         const dataUrl = await svgToPngDataUrl(plan.svg, paperW * dpi, paperH * dpi);
@@ -1016,6 +1682,9 @@
     sheetLocalGeometry,
     sheetToPortraitPlan,
     buildSheetCutPlanSvg,
+    buildInfoSheetSvg,
+    buildCoverSheetSvg: buildInfoSheetSvg,
+    buildPatternOverviewSvg,
     buildCutPlansForPart,
     letterForIndex,
     downloadCutPlansPdf,

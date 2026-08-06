@@ -1,13 +1,13 @@
-- [ ] The width of the boxes in the preview seems to be changing visually based on the width of the numbers in the dimension, especially with imperial fractions. Make all the numbers for the shown dimensions in the previews live in an element with a fixed width so they will not change the width or position of any of their surrounding elements.
-- [ ] In the cut guide the dimension numbers next to the dashed vertical fold lines need to be vertical and not intersecting the dashed line, they are currently horizontal and overlapping the vertical dashed lines.
-- [ ] Add gray dotted lines for the artwork to the cut guide. These can have dimensions but they should only be on the inside, not along the outside.
-- [ ] Add an extra dimension outside the existing ones along the outer edge of the cut guide to show the combined measurement of the box face and edge when applicable.
-- [ ] Get rid of the Cutting Plan section above the image preview / carousel and add all that information as a cover sheet for the cut guide image set both in the browser and the PDF.
-- [ ] Collapse / hide the Box Lid layout when it is locked.
-- [ ] Add subtle explanatory info icons next to all inputs with short sentence explanations for each similar in tone to the descriptions in the cut guide PDF. Make these appear on hover and in a small simple modal when clicked.
-- [ ] Make the letters appearing in the preview canvases a thinner font weight and in the top left of their respective cardboard sections. 
-- [ ] Add orientation up arrows to each cut guide page with up indicating what up was for that section in the canvas previews.
-- [ ] Get rid of the slider for thickness.
-- [ ] Extend thin subtle dotted lines out from the fold lines and the outer edges of the box flaps on the cut guide pages and show the same dimension labels on each side including the outer combined ones added earlier. These are not needed for the artwork dotted lines.
-- [ ] Use @media styling to make a mobile friendly layout with compact controls that open with a simple hamburger menu.
-- [ ] Make all the letters in he the canvas previews and the cut guide lowercase and serif.
+- [x] The width of the boxes in the preview seems to be changing visually based on the width of the numbers in the dimension, especially with imperial fractions. Make all the numbers for the shown dimensions in the previews live in an element with a fixed width so they will not change the width or position of any of their surrounding elements.
+- [x] In the cut guide the dimension numbers next to the dashed vertical fold lines need to be vertical and not intersecting the dashed line, they are currently horizontal and overlapping the vertical dashed lines.
+- [x] Add gray dotted lines for the artwork to the cut guide. These can have dimensions but they should only be on the inside, not along the outside.
+- [x] Add an extra dimension outside the existing ones along the outer edge of the cut guide to show the combined measurement of the box face and edge when applicable.
+- [x] Get rid of the Cutting Plan section above the image preview / carousel and add all that information as a cover sheet for the cut guide image set both in the browser and the PDF.
+- [x] Collapse / hide the Box Lid layout when it is locked.
+- [x] Add subtle explanatory info icons next to all inputs with short sentence explanations for each similar in tone to the descriptions in the cut guide PDF. Make these appear on hover and in a small simple modal when clicked.
+- [x] Make the letters appearing in the preview canvases a thinner font weight and in the top left of their respective cardboard sections.
+- [x] Add orientation up arrows to each cut guide page with up indicating what up was for that section in the canvas previews.
+- [x] Get rid of the slider for thickness.
+- [x] Extend thin subtle dotted lines out from the fold lines and the outer edges of the box flaps on the cut guide pages and show the same dimension labels on each side including the outer combined ones added earlier. These are not needed for the artwork dotted lines.
+- [x] Use @media styling to make a mobile friendly layout with compact controls that open with a simple hamburger menu.
+- [x] Make all the letters in he the canvas previews and the cut guide lowercase and serif.

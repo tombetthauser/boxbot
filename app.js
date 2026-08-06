@@ -1,10 +1,7 @@
 const form = document.getElementById("box-form");
 const output = document.getElementById("output");
-const summary = document.getElementById("output-summary");
 const cutPlanViewer = document.getElementById("cut-plan-viewer");
 const cutPlanStage = document.getElementById("cut-plan-stage");
-const cutPlanTitle = document.getElementById("cut-plan-title");
-const cutPlanRole = document.getElementById("cut-plan-role");
 const cutPlanIndexLabel = document.getElementById("cut-plan-index-label");
 const cutPlanPrevBtn = document.getElementById("cut-plan-prev");
 const cutPlanNextBtn = document.getElementById("cut-plan-next");
@@ -18,8 +15,17 @@ const cutPlanModalNext = document.getElementById("cut-plan-modal-next");
 const lockBtn = document.getElementById("sheet-lock");
 const lidLayoutLockBtn = document.getElementById("lid-layout-lock");
 const lidLayoutSection = document.getElementById("lid-layout-section");
+const lidLayoutPart = document.getElementById("lid-layout-part");
+const lidLockedNote = document.getElementById("lid-locked-note");
 const sheetWidthInput = document.getElementById("sheetWidth");
 const sheetHeightInput = document.getElementById("sheetHeight");
+const menuToggle = document.getElementById("menu-toggle");
+const formBackdrop = document.getElementById("form-backdrop");
+const infoModal = document.getElementById("info-modal");
+const infoModalTitle = document.getElementById("info-modal-title");
+const infoModalBody = document.getElementById("info-modal-body");
+const infoModalClose = document.getElementById("info-modal-close");
+const infoTooltip = document.getElementById("info-tooltip");
 const baseCanvas = document.getElementById("base-canvas");
 const lidCanvas = document.getElementById("lid-canvas");
 const baseCtx = baseCanvas.getContext("2d");
@@ -52,9 +58,100 @@ function syncSlider(name) {
   const label = document.getElementById(`${name}-val`);
   if (input && label) {
     const denom = name === "cardboardThickness" ? 64 : 32;
-    label.textContent = formatDimValue(Number(input.value), denom);
+    const formatted = formatDimValue(Number(input.value), denom);
+    if (label.tagName === "INPUT") {
+      if (document.activeElement !== label) label.value = formatted;
+    } else {
+      label.textContent = formatted;
+    }
   }
 }
+
+/** Parse typed inch strings: 24, 24.5, 24", 1/8, 24 1/2, 24-1/2 */
+function parseInchesInput(raw) {
+  let s = String(raw ?? "")
+    .trim()
+    .replace(/["″']/g, "")
+    .replace(/,/g, "")
+    .replace(/−/g, "-");
+  if (!s) return NaN;
+
+  const mixed = s.match(/^(-?\d+(?:\.\d+)?)\s+(\d+)\s*\/\s*(\d+)$/);
+  if (mixed) {
+    const whole = Number(mixed[1]);
+    const frac = Number(mixed[2]) / Number(mixed[3]);
+    if (!Number.isFinite(whole) || !Number.isFinite(frac)) return NaN;
+    return whole + Math.sign(whole || 1) * Math.abs(frac);
+  }
+
+  const dashed = s.match(/^(-?\d+(?:\.\d+)?)-(\d+)\s*\/\s*(\d+)$/);
+  if (dashed) {
+    const whole = Number(dashed[1]);
+    const frac = Number(dashed[2]) / Number(dashed[3]);
+    if (!Number.isFinite(whole) || !Number.isFinite(frac)) return NaN;
+    return whole + Math.sign(whole || 1) * Math.abs(frac);
+  }
+
+  const frac = s.match(/^(-?\d+)\s*\/\s*(\d+)$/);
+  if (frac) {
+    const n = Number(frac[1]) / Number(frac[2]);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function ensureSliderCanReach(input, value) {
+  if (!input || input.type !== "range") return;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return;
+  const curMax = Number(input.max);
+  if (Number.isFinite(curMax) && n > curMax) {
+    input.max = String(n);
+  }
+}
+
+/**
+ * Set a dimension from slider, nudge, or typed override.
+ * Artwork sizes have no upper cap when typed; thickness stays within min/max.
+ */
+function setDimensionValue(name, value) {
+  const input = form.elements[name];
+  if (!input) return false;
+
+  let n = Number(value);
+  if (!Number.isFinite(n)) return false;
+
+  const minRaw = Number(input.min);
+  const min = Number.isFinite(minRaw) ? minRaw : 0;
+
+  if (name === "cardboardThickness") {
+    const maxRaw = Number(input.max);
+    const max = Number.isFinite(maxRaw) ? maxRaw : 1;
+    n = Math.min(max, Math.max(min, n));
+  } else {
+    if (n < min) n = min;
+    ensureSliderCanReach(input, n);
+  }
+
+  input.value = String(n);
+  syncSlider(name);
+  drawPreview();
+  return true;
+}
+
+function commitValueEdit(name) {
+  const edit = document.getElementById(`${name}-val`);
+  if (!edit || edit.tagName !== "INPUT") return;
+  const parsed = parseInchesInput(edit.value);
+  if (!Number.isFinite(parsed)) {
+    syncSlider(name);
+    return;
+  }
+  setDimensionValue(name, parsed);
+}
+
 
 function setSheetLocked(locked) {
   sheetLocked = locked;
@@ -106,6 +203,11 @@ function setLidLayoutLocked(locked) {
     ? "Locked"
     : "Unlocked";
   if (lidLayoutSection) lidLayoutSection.hidden = locked;
+  if (lidLayoutPart) {
+    lidLayoutPart.classList.toggle("is-locked", locked);
+    lidLayoutPart.classList.toggle("is-unlocked", !locked);
+  }
+  if (lidLockedNote) lidLockedNote.hidden = !locked;
 
   if (locked) {
     copyBaseLayoutToLid();
@@ -226,8 +328,8 @@ function nudgeDimension(name, direction, fractionDenom = 32) {
   const input = form.elements[name];
   if (!input) return;
 
-  const min = Number(input.min);
-  const max = Number(input.max);
+  const minRaw = Number(input.min);
+  const min = Number.isFinite(minRaw) ? minRaw : name === "cardboardThickness" ? 0.0625 : 0;
   const dir = direction < 0 ? -1 : 1;
   let next;
 
@@ -237,26 +339,35 @@ function nudgeDimension(name, direction, fractionDenom = 32) {
     next = fromTenths(toTenths(input.value) + dir);
   }
 
-  next = Math.min(max, Math.max(min, next));
-  input.value = String(next);
-  syncSlider(name);
-  drawPreview();
+  if (next < min) next = min;
+
+  if (name === "cardboardThickness") {
+    const maxRaw = Number(input.max);
+    const max = Number.isFinite(maxRaw) ? maxRaw : 1;
+    next = Math.min(max, next);
+  } else {
+    ensureSliderCanReach(input, next);
+  }
+
+  setDimensionValue(name, next);
 }
 
+/** Fixed slot so long fraction labels do not shift surrounding preview geometry. */
+const DIM_LABEL_SLOT_W = 72;
+const DIM_LABEL_SLOT_H = 14;
+
 function drawDimensionLabel(x, y, label, vertical = false, color = "#111") {
-  activeCtx.fillStyle = color;
   activeCtx.font = "12px ui-sans-serif, system-ui, sans-serif";
   activeCtx.textAlign = "center";
   activeCtx.textBaseline = "middle";
-  if (vertical) {
-    activeCtx.save();
-    activeCtx.translate(x, y);
-    activeCtx.rotate(-Math.PI / 2);
-    activeCtx.fillText(label, 0, 0);
-    activeCtx.restore();
-  } else {
-    activeCtx.fillText(label, x, y);
-  }
+  activeCtx.save();
+  activeCtx.translate(x, y);
+  if (vertical) activeCtx.rotate(-Math.PI / 2);
+  activeCtx.fillStyle = "#fff";
+  activeCtx.fillRect(-DIM_LABEL_SLOT_W / 2, -DIM_LABEL_SLOT_H / 2, DIM_LABEL_SLOT_W, DIM_LABEL_SLOT_H);
+  activeCtx.fillStyle = color;
+  activeCtx.fillText(label, 0, 0);
+  activeCtx.restore();
 }
 
 function drawDimensionLine(x1, y1, x2, y2, label, offsetX, offsetY, color = "#111") {
@@ -845,7 +956,8 @@ function lidGeometryFromShared(shared, expandForThickness) {
 }
 
 function lidExpandForThicknessEnabled() {
-  return Boolean(form.elements.lidExpandForThickness?.checked);
+  // Always expand the lid for cardboard thickness (UI toggle removed for now).
+  return true;
 }
 
 function readSheetLayoutControls(prefix) {
@@ -976,15 +1088,15 @@ function drawPartPreview(canvas, partCtx, opts) {
 
   if (showSheetLetters) {
     partCtx.fillStyle = "#c00";
-    partCtx.font = "bold 12px ui-sans-serif, system-ui, sans-serif";
-    partCtx.textAlign = "center";
-    partCtx.textBaseline = "middle";
+    partCtx.font = "300 13px Georgia, 'Times New Roman', serif";
+    partCtx.textAlign = "left";
+    partCtx.textBaseline = "top";
     for (const sheet of sheets) {
       if (!sheet.letter) continue;
       partCtx.fillText(
-        sheet.letter,
-        toX(sheet.x + sheet.w / 2),
-        toY(sheet.y + sheet.h / 2)
+        String(sheet.letter).toLowerCase(),
+        toX(sheet.x) + 6,
+        toY(sheet.y) + 5
       );
     }
   }
@@ -1276,6 +1388,26 @@ document.querySelectorAll(".nudge").forEach((button) => {
   });
 });
 
+sliderNames.forEach((name) => {
+  const edit = document.getElementById(`${name}-val`);
+  if (!edit || edit.tagName !== "INPUT") return;
+  edit.addEventListener("focus", () => {
+    edit.select();
+  });
+  edit.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitValueEdit(name);
+      edit.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      syncSlider(name);
+      edit.blur();
+    }
+  });
+  edit.addEventListener("blur", () => commitValueEdit(name));
+});
+
 wirePartLayoutControls("base", afterBaseLayoutChange);
 wirePartLayoutControls("lid");
 
@@ -1287,19 +1419,14 @@ lidLayoutLockBtn.addEventListener("click", () => {
   setLidLayoutLocked(!lidLayoutLocked);
 });
 
-form.elements.lidExpandForThickness?.addEventListener("change", drawPreview);
 form.elements.showSheetLetters?.addEventListener("change", drawPreview);
 
 function showCutPlanAt(index) {
   if (!latestCutPlans.length) return;
   cutPlanIndex = (index + latestCutPlans.length) % latestCutPlans.length;
   const plan = latestCutPlans[cutPlanIndex];
-  const title = `Box ${plan.part} — Sheet ${plan.letter}`;
-  const role = plan.role || "";
   const indexLabel = `${cutPlanIndex + 1} / ${latestCutPlans.length}`;
 
-  if (cutPlanTitle) cutPlanTitle.textContent = title;
-  if (cutPlanRole) cutPlanRole.textContent = role;
   if (cutPlanIndexLabel) cutPlanIndexLabel.textContent = indexLabel;
   if (cutPlanStage) cutPlanStage.innerHTML = plan.svg;
 
@@ -1407,6 +1534,10 @@ form.addEventListener("submit", (event) => {
         wallDepth: shared.wallDepth,
         patternW: shared.patternW,
         patternH: shared.patternH,
+        artworkW: shared.widthIn,
+        artworkH: shared.heightIn,
+        edgeIn: shared.edgeIn,
+        showArtwork: true,
         formatInches,
         letterOffset: 0,
       })
@@ -1420,12 +1551,14 @@ form.addEventListener("submit", (event) => {
         wallDepth: lidGeom.wallDepth,
         patternW: lidGeom.patternW,
         patternH: lidGeom.patternH,
+        artworkW: shared.widthIn,
+        artworkH: shared.heightIn,
+        edgeIn: shared.edgeIn,
+        showArtwork: false,
         formatInches,
         letterOffset: lidLetterOffset,
       })
     : [];
-  const allPlans = [...basePlans, ...lidPlans];
-  renderCutPlans(allPlans);
 
   function anchorLabel(controls) {
     const parts = [];
@@ -1434,15 +1567,69 @@ form.addEventListener("submit", (event) => {
     return parts.length ? parts.join(" + ") : "bottom-right";
   }
 
-  summary.textContent = [
-    `Box type: Lid & Base`,
-    `Artwork: ${shared.widthIn} × ${shared.heightIn} × ${shared.depthIn} in`,
-    `Edge padding: ${shared.edgeIn} in`,
-    `Front padding: ${shared.frontIn} in`,
-    `Back padding: ${shared.backIn} in`,
-    `Cardboard thickness: ${shared.thicknessIn} in`,
-    `Lid thickness expand: ${expandLid ? "on" : "off"}`,
-    `Sheet: ${shared.sheetW} × ${shared.sheetH} in`,
+  const overviewPlans = [];
+  if (CutPlans && typeof CutPlans.buildPatternOverviewSvg === "function") {
+    overviewPlans.push({
+      letter: "base-overview",
+      part: "Base",
+      role: "Full box base layout — same cardboard sheets and net as the Box Base canvas preview.",
+      isOverview: true,
+      svg: CutPlans.buildPatternOverviewSvg({
+        part: "Base",
+        sheets: baseSheets,
+        outerW: shared.outerW,
+        outerH: shared.outerH,
+        wallDepth: shared.wallDepth,
+        patternW: shared.patternW,
+        patternH: shared.patternH,
+        artworkW: shared.widthIn,
+        artworkH: shared.heightIn,
+        edgeIn: shared.edgeIn,
+        showArtwork: true,
+        showSheetLetters: true,
+        formatInches,
+        explanation:
+          "This overview matches the Box Base canvas: every cardboard sheet in red, " +
+          "with the cutting net on top. Solid lines are cuts; dashed lines are folds. " +
+          "Gray dotted artwork marks where the piece sits inside the floor panel.",
+      }),
+    });
+    overviewPlans.push({
+      letter: "lid-overview",
+      part: "Lid",
+      role: "Full box lid layout — same cardboard sheets and net as the Box Lid canvas preview.",
+      isOverview: true,
+      svg: CutPlans.buildPatternOverviewSvg({
+        part: "Lid",
+        sheets: lidSheets,
+        outerW: lidGeom.outerW,
+        outerH: lidGeom.outerH,
+        wallDepth: lidGeom.wallDepth,
+        patternW: lidGeom.patternW,
+        patternH: lidGeom.patternH,
+        artworkW: shared.widthIn,
+        artworkH: shared.heightIn,
+        edgeIn: shared.edgeIn,
+        showArtwork: false,
+        showSheetLetters: true,
+        formatInches,
+        explanation:
+          "This overview matches the Box Lid canvas: every cardboard sheet in red, " +
+          "with the lid cutting net on top. Lid panels are expanded for cardboard thickness so the lid fits over the base walls.",
+      }),
+    });
+  }
+
+  const infoLines = [
+    "Box & artwork information",
+    "",
+    "Box type: Lid & Base",
+    `Artwork: ${formatInches(shared.widthIn)} × ${formatInches(shared.heightIn)} × ${formatInches(shared.depthIn)}`,
+    `Edge padding: ${formatInches(shared.edgeIn)}`,
+    `Front padding: ${formatInches(shared.frontIn)}`,
+    `Back padding: ${formatInches(shared.backIn)}`,
+    `Cardboard thickness: ${formatDimValue(shared.thicknessIn, 64)}`,
+    `Sheet size: ${formatInches(shared.sheetW)} × ${formatInches(shared.sheetH)}`,
     "",
     `Base orientation: ${baseControls.override ? "manual" : "automatic"} → ${baseLayout.baseOrientation || baseLayout.orientation}`,
     `Base sheet anchor: ${anchorLabel(baseControls)}`,
@@ -1454,11 +1641,150 @@ form.addEventListener("submit", (event) => {
     `Lid fit: ${layoutLabel(lidLayout)}`,
     `Lid cut sheets: ${lidPlans.map((p) => p.letter).join(", ") || "—"}`,
     "",
-    `Cut diagrams: ${allPlans.length} sheet page${allPlans.length === 1 ? "" : "s"} ready.`,
-  ].join("\n");
+    `Sheet cut guides: ${basePlans.length + lidPlans.length} page${basePlans.length + lidPlans.length === 1 ? "" : "s"}`,
+    "Overview pages show the full base and lid patterns from the canvas previews.",
+    "Cut on solid lines. Crease on dashed fold lines. Red/black double border is the cardboard sheet edge.",
+  ];
+
+  const infoPlan =
+    CutPlans && typeof CutPlans.buildInfoSheetSvg === "function"
+      ? {
+          letter: "info",
+          part: "Info",
+          role: "Box and artwork information for this cutting plan.",
+          isInfo: true,
+          isCover: true,
+          svg: CutPlans.buildInfoSheetSvg(infoLines),
+        }
+      : null;
+
+  // Sheet guides first, then full-pattern overviews, info sheet last.
+  const allPlans = [...basePlans, ...lidPlans, ...overviewPlans];
+  if (infoPlan) allPlans.push(infoPlan);
+  renderCutPlans(allPlans);
 
   output.hidden = false;
 });
+
+
+const INFO_COPY = {
+  artworkWidth: "Width of the artwork face, left to right, before edge padding is added.",
+  artworkHeight: "Height of the artwork face, top to bottom, before edge padding is added.",
+  artworkDepth: "How deep the artwork sits front-to-back. This sets the side-wall flap depth together with front and back padding.",
+  inchFormat: "Choose decimal inches or imperial fractions for on-screen labels. Fraction mode rounds artwork sizes to the nearest 1/32 inch and thickness to 1/64 inch.",
+  edgePadding: "Extra cardboard around the artwork on all four sides of the floor (or lid top) panel.",
+  frontPadding: "Padding added in front of the artwork. It increases the wall flap depth with artwork depth and back padding.",
+  backPadding: "Padding added behind the artwork. It increases the wall flap depth with artwork depth and front padding.",
+  cardboardThickness: "Thickness of the cardboard stock. Used when expanding the lid so it fits cleanly over the base.",
+  sheetSize: "Size of each cardboard sheet you will cut from. Lock keeps the common 48 by 96 inch stock.",
+  baseLayout: "Controls how sheets are arranged under the box base cutting pattern.",
+  lidLayout: "Controls how sheets are arranged under the box lid. When locked, the lid mirrors the base layout.",
+  optimizePerp: "Allows leftover bands to use sheets turned the other way when that packs the pattern more efficiently.",
+  overrideOrient: "Force every sheet into horizontal or vertical orientation instead of letting BoxBot choose.",
+  centerH: "Shift the sheet grid so leftover cardboard is balanced left and right instead of stacked to one side.",
+  centerV: "Shift the sheet grid so leftover cardboard is balanced top and bottom instead of stacked to one side.",
+  showSheetDims: "Draw red dimension labels for one cardboard sheet on the preview.",
+  showLetters: "Label each cardboard sheet with a letter that matches the cut-guide pages.",
+  sheetLock: "Lock keeps the cardboard sheet size fixed at the common stock size. Unlock only when you need to cut from a different sheet size.",
+  lidLock: "When locked, the lid uses the same sheet layout settings as the box base. Unlock to arrange lid sheets independently.",
+};
+
+function infoTitleForKey(key) {
+  const map = {
+    artworkWidth: "Artwork width",
+    artworkHeight: "Artwork height",
+    artworkDepth: "Artwork depth",
+    inchFormat: "Inch display",
+    edgePadding: "Edge padding",
+    frontPadding: "Front padding",
+    backPadding: "Back padding",
+    cardboardThickness: "Cardboard thickness",
+    sheetSize: "Cardboard sheet",
+    baseLayout: "Box Base layout",
+    lidLayout: "Box Lid layout",
+    optimizePerp: "Perpendicular sheets",
+    overrideOrient: "Orientation override",
+    centerH: "Center horizontally",
+    centerV: "Center vertically",
+    showSheetDims: "Sheet dimensions",
+    showLetters: "Sheet letters",
+    sheetLock: "Sheet size lock",
+    lidLock: "Lid layout lock",
+  };
+  return map[key] || "Info";
+}
+
+function openInfoModal(key) {
+  if (!infoModal) return;
+  const body = INFO_COPY[key];
+  if (!body) return;
+  if (infoModalTitle) infoModalTitle.textContent = infoTitleForKey(key);
+  if (infoModalBody) infoModalBody.textContent = body;
+  infoModal.hidden = false;
+}
+
+function closeInfoModal() {
+  if (infoModal) infoModal.hidden = true;
+}
+
+function setFormOpen(open) {
+  document.body.classList.toggle("form-open", open);
+  if (menuToggle) menuToggle.setAttribute("aria-expanded", String(open));
+  if (formBackdrop) formBackdrop.hidden = !open;
+}
+
+function closeFormDrawer() {
+  setFormOpen(false);
+}
+
+if (menuToggle) {
+  menuToggle.addEventListener("click", () => {
+    setFormOpen(!document.body.classList.contains("form-open"));
+  });
+}
+if (formBackdrop) {
+  formBackdrop.addEventListener("click", closeFormDrawer);
+}
+form?.addEventListener("submit", () => closeFormDrawer());
+
+document.querySelectorAll(".info-btn").forEach((btn) => {
+  const key = btn.dataset.info;
+  btn.addEventListener("mouseenter", () => {
+    if (!infoTooltip || !INFO_COPY[key]) return;
+    infoTooltip.hidden = false;
+    infoTooltip.textContent = INFO_COPY[key];
+    const rect = btn.getBoundingClientRect();
+    const tipW = infoTooltip.offsetWidth || 200;
+    const left = Math.min(window.innerWidth - tipW - 8, Math.max(8, rect.left));
+    const top = Math.min(window.innerHeight - 8, rect.bottom + 8);
+    infoTooltip.style.left = `${left}px`;
+    infoTooltip.style.top = `${top}px`;
+  });
+  btn.addEventListener("mouseleave", () => {
+    if (infoTooltip) infoTooltip.hidden = true;
+  });
+  btn.addEventListener("focus", () => {
+    if (!infoTooltip || !INFO_COPY[key]) return;
+    infoTooltip.hidden = false;
+    infoTooltip.textContent = INFO_COPY[key];
+  });
+  btn.addEventListener("blur", () => {
+    if (infoTooltip) infoTooltip.hidden = true;
+  });
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (infoTooltip) infoTooltip.hidden = true;
+    openInfoModal(key);
+  });
+});
+
+if (infoModalClose) infoModalClose.addEventListener("click", closeInfoModal);
+if (infoModal) {
+  infoModal.addEventListener("click", (event) => {
+    if (event.target === infoModal) closeInfoModal();
+  });
+}
 
 if (downloadCutPlansBtn) {
   downloadCutPlansBtn.addEventListener("click", async () => {
@@ -1495,8 +1821,19 @@ if (cutPlanModalNext) {
 }
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if (infoModal && !infoModal.hidden) {
+      closeInfoModal();
+      return;
+    }
+    if (document.body.classList.contains("form-open")) {
+      closeFormDrawer();
+      return;
+    }
+    if (cutPlanModal && !cutPlanModal.hidden) closeCutPlanModal();
+    return;
+  }
   if (!cutPlanModal || cutPlanModal.hidden) return;
-  if (event.key === "Escape") closeCutPlanModal();
   if (event.key === "ArrowLeft") showCutPlanAt(cutPlanIndex - 1);
   if (event.key === "ArrowRight") showCutPlanAt(cutPlanIndex + 1);
 });
@@ -1504,6 +1841,10 @@ document.addEventListener("keydown", (event) => {
 form.addEventListener("reset", () => {
   requestAnimationFrame(() => {
     form.elements.cardboardThickness.value = DEFAULT_THICKNESS;
+    ["artworkWidth", "artworkHeight", "artworkDepth"].forEach((name) => {
+      const input = form.elements[name];
+      if (input?.dataset?.defaultMax) input.max = input.dataset.defaultMax;
+    });
     sliderNames.forEach(syncSlider);
     sheetWidthInput.value = DEFAULT_SHEET_WIDTH;
     sheetHeightInput.value = DEFAULT_SHEET_HEIGHT;
@@ -1512,18 +1853,14 @@ form.addEventListener("reset", () => {
     form.elements.inchFormat.value = "decimal";
     resetPartLayoutControls("base");
     resetPartLayoutControls("lid");
-    if (form.elements.lidExpandForThickness) {
-      form.elements.lidExpandForThickness.checked = true;
-    }
     if (form.elements.showSheetLetters) {
-      form.elements.showSheetLetters.checked = false;
+      form.elements.showSheetLetters.checked = true;
     }
     setLidLayoutLocked(true);
     syncOrientationOverride("base");
     syncOrientationOverride("lid");
   });
   output.hidden = true;
-  summary.textContent = "";
   latestCutPlans = [];
   cutPlanIndex = 0;
   closeCutPlanModal();

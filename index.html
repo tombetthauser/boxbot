@@ -3,47 +3,75 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BoxBot</title>
+  <title>BoxBot 📦</title>
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="BoxBot 📦" />
+  <meta property="og:image" content="preview.png" />
+  <meta property="og:image:alt" content="BoxBot cutting plan preview" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="BoxBot 📦" />
+  <meta name="twitter:image" content="preview.png" />
+  <meta name="apple-mobile-web-app-title" content="BoxBot 📦" />
   <link rel="stylesheet" href="styles.css" />
+  <script>
+    // Resolve preview image to an absolute URL so SMS / iMessage link previews work.
+    (function () {
+      try {
+        const absolute = new URL("preview.png", window.location.href).href;
+        document.querySelectorAll('meta[property="og:image"], meta[name="twitter:image"]').forEach((el) => {
+          el.setAttribute("content", absolute);
+        });
+      } catch (_) {}
+    })();
+  </script>
 </head>
 <body>
   <main>
     <header>
-      <h1>BoxBot</h1>
-      <p>Custom box cutting plans for art handlers. All measurements in inches.</p>
+      <div class="header-row">
+        <button type="button" id="menu-toggle" class="menu-toggle" aria-expanded="false" aria-controls="box-form" aria-label="Open controls">
+          <span class="menu-toggle-bars" aria-hidden="true"></span>
+        </button>
+        <div class="header-text">
+          <h1>BoxBot 📦</h1>
+          <p>A thing for making cut plans for art boxes. Seems to work maybe.</p>
+        </div>
+      </div>
     </header>
+
+    <div id="form-backdrop" class="form-backdrop" hidden></div>
 
     <div class="workspace">
       <form id="box-form">
         <section>
           <h2>Artwork dimensions</h2>
-          <div class="field">
-            <label for="artworkWidth">Width</label>
-            <input type="range" id="artworkWidth" name="artworkWidth" min="1" max="240" step="any" value="24" />
+          <div class="field field-slider">
+            <label for="artworkWidth">Width <button type="button" class="info-btn" data-info="artworkWidth" aria-label="About width">i</button></label>
+            <input type="range" id="artworkWidth" name="artworkWidth" min="1" max="240" step="any" value="24" data-default-max="240" />
             <div class="value-controls">
-              <span class="value"><span id="artworkWidth-val">24"</span></span>
+              <input type="text" class="value-edit" id="artworkWidth-val" value='24"' inputmode="decimal" aria-label="Width value" />
               <div class="nudge-btns">
                 <button type="button" class="nudge" data-dim="artworkWidth" data-dir="1" data-step="32" aria-label="Increase width">▲</button>
                 <button type="button" class="nudge" data-dim="artworkWidth" data-dir="-1" data-step="32" aria-label="Decrease width">▼</button>
               </div>
             </div>
           </div>
-          <div class="field">
-            <label for="artworkHeight">Height</label>
-            <input type="range" id="artworkHeight" name="artworkHeight" min="1" max="240" step="any" value="36" />
+          <div class="field field-slider">
+            <label for="artworkHeight">Height <button type="button" class="info-btn" data-info="artworkHeight" aria-label="About height">i</button></label>
+            <input type="range" id="artworkHeight" name="artworkHeight" min="1" max="240" step="any" value="36" data-default-max="240" />
             <div class="value-controls">
-              <span class="value"><span id="artworkHeight-val">36"</span></span>
+              <input type="text" class="value-edit" id="artworkHeight-val" value='36"' inputmode="decimal" aria-label="Height value" />
               <div class="nudge-btns">
                 <button type="button" class="nudge" data-dim="artworkHeight" data-dir="1" data-step="32" aria-label="Increase height">▲</button>
                 <button type="button" class="nudge" data-dim="artworkHeight" data-dir="-1" data-step="32" aria-label="Decrease height">▼</button>
               </div>
             </div>
           </div>
-          <div class="field">
-            <label for="artworkDepth">Depth</label>
-            <input type="range" id="artworkDepth" name="artworkDepth" min="0.25" max="48" step="any" value="2" />
+          <div class="field field-slider">
+            <label for="artworkDepth">Depth <button type="button" class="info-btn" data-info="artworkDepth" aria-label="About depth">i</button></label>
+            <input type="range" id="artworkDepth" name="artworkDepth" min="0.25" max="48" step="any" value="2" data-default-max="48" />
             <div class="value-controls">
-              <span class="value"><span id="artworkDepth-val">2"</span></span>
+              <input type="text" class="value-edit" id="artworkDepth-val" value='2"' inputmode="decimal" aria-label="Depth value" />
               <div class="nudge-btns">
                 <button type="button" class="nudge" data-dim="artworkDepth" data-dir="1" data-step="32" aria-label="Increase depth">▲</button>
                 <button type="button" class="nudge" data-dim="artworkDepth" data-dir="-1" data-step="32" aria-label="Decrease depth">▼</button>
@@ -51,7 +79,7 @@
             </div>
           </div>
           <div class="radios inch-format">
-            <span class="orient-label">Display</span>
+            <span class="orient-label">Display <button type="button" class="info-btn" data-info="inchFormat" aria-label="About display format">i</button></span>
             <label>
               <input type="radio" name="inchFormat" value="decimal" checked />
               Decimal
@@ -67,21 +95,21 @@
           <h2>Padding</h2>
           <div class="grid">
             <label>
-              Edge
+              <span class="label-line">Edge <button type="button" class="info-btn" data-info="edgePadding" aria-label="About edge padding">i</button></span>
               <span class="input-wrap">
                 <input type="number" name="edgePadding" min="0" step="any" value="1" required />
                 <span>in</span>
               </span>
             </label>
             <label>
-              Front
+              <span class="label-line">Front <button type="button" class="info-btn" data-info="frontPadding" aria-label="About front padding">i</button></span>
               <span class="input-wrap">
                 <input type="number" name="frontPadding" min="0" step="any" value="1" required />
                 <span>in</span>
               </span>
             </label>
             <label>
-              Back
+              <span class="label-line">Back <button type="button" class="info-btn" data-info="backPadding" aria-label="About back padding">i</button></span>
               <span class="input-wrap">
                 <input type="number" name="backPadding" min="0" step="any" value="1" required />
                 <span>in</span>
@@ -90,47 +118,38 @@
           </div>
         </section>
 
-        <section>
-          <h2>Cardboard thickness</h2>
-          <div class="field">
-            <label for="cardboardThickness">Thickness</label>
-            <input type="range" id="cardboardThickness" name="cardboardThickness" min="0.0625" max="1" step="any" value="0.125" />
-            <div class="value-controls">
-              <span class="value"><span id="cardboardThickness-val">0.125"</span></span>
-              <div class="nudge-btns">
-                <button type="button" class="nudge" data-dim="cardboardThickness" data-dir="1" data-step="64" aria-label="Increase thickness">▲</button>
-                <button type="button" class="nudge" data-dim="cardboardThickness" data-dir="-1" data-step="64" aria-label="Decrease thickness">▼</button>
+        <section class="compact-section">
+          <div class="compact-row">
+            <div class="compact-thickness">
+              <span class="compact-label">Thickness <button type="button" class="info-btn" data-info="cardboardThickness" aria-label="About thickness">i</button></span>
+              <div class="value-controls">
+                <input type="text" class="value-edit" id="cardboardThickness-val" value='0.125"' inputmode="decimal" aria-label="Thickness value" />
+                <div class="nudge-btns">
+                  <button type="button" class="nudge" data-dim="cardboardThickness" data-dir="1" data-step="64" aria-label="Increase thickness">▲</button>
+                  <button type="button" class="nudge" data-dim="cardboardThickness" data-dir="-1" data-step="64" aria-label="Decrease thickness">▼</button>
+                </div>
               </div>
+              <input type="hidden" id="cardboardThickness" name="cardboardThickness" min="0.0625" max="1" value="0.125" />
+            </div>
+            <div class="compact-boxtype">
+              <span class="compact-label">Box type</span>
+              <span class="compact-boxtype-value">Lid &amp; Base</span>
+              <span class="soon">Clamshell soon</span>
+              <input type="hidden" name="boxType" value="bottom-lid" />
             </div>
           </div>
-          <label class="override-label lid-thickness-toggle">
-            <input type="checkbox" name="lidExpandForThickness" id="lidExpandForThickness" checked />
-            Expand lid for cardboard thickness
-          </label>
-        </section>
-
-        <section>
-          <h2>Box type</h2>
-          <div class="radios">
-            <label class="locked-choice">
-              <input type="radio" checked disabled />
-              Lid &amp; Base
-            </label>
-            <label class="disabled">
-              <input type="radio" disabled />
-              Clamshell <span class="soon">(soon)</span>
-            </label>
-          </div>
-          <input type="hidden" name="boxType" value="bottom-lid" />
         </section>
 
         <section>
           <div class="section-head">
-            <h2>Cardboard sheet</h2>
-            <button type="button" id="sheet-lock" class="lock-btn" aria-pressed="true" title="Unlock to edit sheet size">
-              <span class="lock-icon" aria-hidden="true">🔒</span>
-              <span class="lock-label">Locked</span>
-            </button>
+            <h2>Cardboard sheet <button type="button" class="info-btn" data-info="sheetSize" aria-label="About sheet size">i</button></h2>
+            <div class="lock-with-info">
+              <button type="button" id="sheet-lock" class="lock-btn" aria-pressed="true" title="Unlock to edit sheet size">
+                <span class="lock-icon" aria-hidden="true">🔒</span>
+                <span class="lock-label">Locked</span>
+              </button>
+              <button type="button" class="info-btn" data-info="sheetLock" aria-label="About sheet lock">i</button>
+            </div>
           </div>
           <div class="grid grid-2" id="sheet-fields">
             <label>
@@ -150,15 +169,17 @@
           </div>
 
           <div class="sheet-part">
-            <h3>Box Base layout</h3>
+            <h3>Box Base layout <button type="button" class="info-btn" data-info="baseLayout" aria-label="About base layout">i</button></h3>
             <div class="sheet-orientation">
               <label class="override-label">
                 <input type="checkbox" name="baseOptimizePerpendicular" id="baseOptimizePerpendicular" checked />
                 Optimize with perpendicular sheets
+                <button type="button" class="info-btn" data-info="optimizePerp" aria-label="About perpendicular sheets">i</button>
               </label>
               <label class="override-label">
                 <input type="checkbox" name="baseOverrideOrientation" id="baseOverrideOrientation" />
                 Override automatic orientation
+                <button type="button" class="info-btn" data-info="overrideOrient" aria-label="About orientation override">i</button>
               </label>
               <div class="radios" id="base-orientation-radios">
                 <span class="orient-label">Orientation</span>
@@ -174,30 +195,38 @@
               <label class="override-label">
                 <input type="checkbox" name="baseCenterHorizontal" id="baseCenterHorizontal" />
                 Center sheets horizontally
+                <button type="button" class="info-btn" data-info="centerH" aria-label="About horizontal centering">i</button>
               </label>
               <label class="override-label">
                 <input type="checkbox" name="baseCenterVertical" id="baseCenterVertical" />
                 Center sheets vertically
+                <button type="button" class="info-btn" data-info="centerV" aria-label="About vertical centering">i</button>
               </label>
               <label class="override-label">
                 <input type="checkbox" name="baseShowSheetDimensions" id="baseShowSheetDimensions" />
                 Show sheet dimensions
+                <button type="button" class="info-btn" data-info="showSheetDims" aria-label="About sheet dimensions">i</button>
               </label>
               <label class="override-label">
-                <input type="checkbox" name="showSheetLetters" id="showSheetLetters" />
+                <input type="checkbox" name="showSheetLetters" id="showSheetLetters" checked />
                 Show sheet letters
+                <button type="button" class="info-btn" data-info="showLetters" aria-label="About sheet letters">i</button>
               </label>
             </div>
           </div>
 
-          <div class="sheet-part">
+          <div class="sheet-part" id="lid-layout-part">
             <div class="section-head">
-              <h3>Box Lid layout</h3>
-              <button type="button" id="lid-layout-lock" class="lock-btn" aria-pressed="true" title="Unlock to customize lid layout">
-                <span class="lock-icon" aria-hidden="true">🔒</span>
-                <span class="lock-label">Locked</span>
-              </button>
+              <h3>Box Lid layout <button type="button" class="info-btn" data-info="lidLayout" aria-label="About lid layout">i</button></h3>
+              <div class="lock-with-info">
+                <button type="button" id="lid-layout-lock" class="lock-btn" aria-pressed="true" title="Unlock to customize lid layout">
+                  <span class="lock-icon" aria-hidden="true">🔒</span>
+                  <span class="lock-label">Locked</span>
+                </button>
+                <button type="button" class="info-btn" data-info="lidLock" aria-label="About lid layout lock">i</button>
+              </div>
             </div>
+            <p class="lid-locked-note" id="lid-locked-note">Lid layout matches Box Base. Unlock to customize.</p>
             <div class="sheet-orientation lid-layout-dropdown" id="lid-layout-section" hidden>
               <label class="override-label">
                 <input type="checkbox" name="lidOptimizePerpendicular" id="lidOptimizePerpendicular" checked />
@@ -253,24 +282,18 @@
     </div>
 
     <section id="output" hidden>
-      <div class="section-head">
-        <h2>Cutting plan</h2>
-        <button type="button" id="download-cut-plans" class="secondary-btn" hidden>
-          Download PDF
-        </button>
-      </div>
-      <pre id="output-summary"></pre>
       <div id="cut-plan-viewer" class="cut-plan-viewer" hidden>
         <div class="cut-plan-viewer-bar">
           <button type="button" id="cut-plan-prev" class="cut-plan-nav" aria-label="Previous sheet">←</button>
-          <div class="cut-plan-viewer-meta">
-            <strong id="cut-plan-title"></strong>
-            <span id="cut-plan-role"></span>
-            <span id="cut-plan-index-label" class="cut-plan-index"></span>
-          </div>
+          <span id="cut-plan-index-label" class="cut-plan-index" hidden></span>
           <button type="button" id="cut-plan-next" class="cut-plan-nav" aria-label="Next sheet">→</button>
         </div>
         <button type="button" id="cut-plan-stage" class="cut-plan-stage" aria-label="Open full screen cut plan"></button>
+        <div class="cut-plan-viewer-footer">
+          <button type="button" id="download-cut-plans" class="secondary-btn" hidden>
+            Download PDF
+          </button>
+        </div>
       </div>
       <p class="note" id="cut-plans-note">Printable diagrams will appear here.</p>
     </section>
@@ -282,6 +305,18 @@
     <button type="button" id="cut-plan-modal-prev" class="cut-plan-modal-nav cut-plan-modal-prev" aria-label="Previous sheet">←</button>
     <button type="button" id="cut-plan-modal-next" class="cut-plan-modal-nav cut-plan-modal-next" aria-label="Next sheet">→</button>
   </div>
+
+  <div id="info-modal" class="info-modal" hidden>
+    <div class="info-modal-card" role="dialog" aria-modal="true" aria-labelledby="info-modal-title">
+      <div class="info-modal-head">
+        <strong id="info-modal-title">Info</strong>
+        <button type="button" id="info-modal-close" class="info-modal-close" aria-label="Close">×</button>
+      </div>
+      <p id="info-modal-body"></p>
+    </div>
+  </div>
+
+  <div id="info-tooltip" class="info-tooltip" hidden></div>
 
   <script src="cutplans.js"></script>
   <script src="app.js"></script>
