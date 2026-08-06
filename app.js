@@ -2,13 +2,20 @@ const form = document.getElementById("box-form");
 const output = document.getElementById("output");
 const summary = document.getElementById("output-summary");
 const lockBtn = document.getElementById("sheet-lock");
+const lidLayoutLockBtn = document.getElementById("lid-layout-lock");
+const lidLayoutControls = document.getElementById("lid-layout-controls");
+const lidLayoutHint = document.getElementById("lid-layout-hint");
 const sheetWidthInput = document.getElementById("sheetWidth");
 const sheetHeightInput = document.getElementById("sheetHeight");
-const canvas = document.getElementById("artwork-canvas");
-const ctx = canvas.getContext("2d");
+const baseCanvas = document.getElementById("base-canvas");
+const lidCanvas = document.getElementById("lid-canvas");
+const baseCtx = baseCanvas.getContext("2d");
+const lidCtx = lidCanvas.getContext("2d");
+let activeCtx = baseCtx;
 
 const DEFAULT_SHEET_WIDTH = 48;
 const DEFAULT_SHEET_HEIGHT = 96;
+const DEFAULT_THICKNESS = 0.125;
 const SHEET_GAP_PX = 1;
 const FIT_EPS = 1e-6;
 
@@ -19,15 +26,17 @@ const FIT_EPS = 1e-6;
  */
 const PREFER_DEFAULT_ORIENTATION_IN_REMNANTS = true;
 
-const sliderNames = ["artworkWidth", "artworkHeight", "artworkDepth"];
+const sliderNames = ["artworkWidth", "artworkHeight", "artworkDepth", "cardboardThickness"];
 
 let sheetLocked = true;
+let lidLayoutLocked = true;
 
 function syncSlider(name) {
   const input = form.elements[name];
   const label = document.getElementById(`${name}-val`);
   if (input && label) {
-    label.textContent = formatInches(Number(input.value));
+    const denom = name === "cardboardThickness" ? 64 : 32;
+    label.textContent = formatDimValue(Number(input.value), denom);
   }
 }
 
@@ -39,6 +48,45 @@ function setSheetLocked(locked) {
   lockBtn.title = locked ? "Unlock to edit sheet size" : "Lock sheet size";
   lockBtn.querySelector(".lock-icon").textContent = locked ? "🔒" : "🔓";
   lockBtn.querySelector(".lock-label").textContent = locked ? "Locked" : "Unlocked";
+}
+
+function copyBaseLayoutToLid() {
+  form.elements.lidOptimizePerpendicular.checked =
+    form.elements.baseOptimizePerpendicular.checked;
+  form.elements.lidOverrideOrientation.checked =
+    form.elements.baseOverrideOrientation.checked;
+  form.elements.lidSheetOrientation.value =
+    form.elements.baseSheetOrientation.value;
+  form.elements.lidCenterHorizontal.checked =
+    form.elements.baseCenterHorizontal.checked;
+  form.elements.lidCenterVertical.checked =
+    form.elements.baseCenterVertical.checked;
+  form.elements.lidShowSheetDimensions.checked =
+    form.elements.baseShowSheetDimensions.checked;
+
+  const override = form.elements.lidOverrideOrientation.checked;
+  document.querySelectorAll('input[name="lidSheetOrientation"]').forEach((input) => {
+    input.disabled = !override;
+  });
+}
+
+function setLidLayoutLocked(locked) {
+  lidLayoutLocked = locked;
+  lidLayoutLockBtn.setAttribute("aria-pressed", String(locked));
+  lidLayoutLockBtn.title = locked
+    ? "Unlock to customize lid layout"
+    : "Lock lid layout to match Box Base";
+  lidLayoutLockBtn.querySelector(".lock-icon").textContent = locked ? "🔒" : "🔓";
+  lidLayoutLockBtn.querySelector(".lock-label").textContent = locked
+    ? "Locked"
+    : "Unlocked";
+  lidLayoutControls.hidden = locked;
+  if (lidLayoutHint) lidLayoutHint.hidden = !locked;
+
+  if (locked) {
+    copyBaseLayoutToLid();
+  }
+  drawPreview();
 }
 
 function gcdInt(a, b) {
@@ -56,13 +104,22 @@ function inchFormatMode() {
   return form.elements.inchFormat?.value === "fraction" ? "fraction" : "decimal";
 }
 
+/** Snap inches to nearest 1/denom using integer fraction units. */
+function toFractionUnits(value, denom) {
+  return Math.round(Number(value) * denom);
+}
+
+function fromFractionUnits(units, denom) {
+  return units / denom;
+}
+
 /** Snap inches to nearest 1/32 using integer thirty-seconds (exact for dyadic values). */
 function toThirtySeconds(value) {
-  return Math.round(Number(value) * 32);
+  return toFractionUnits(value, 32);
 }
 
 function fromThirtySeconds(units) {
-  return units / 32;
+  return fromFractionUnits(units, 32);
 }
 
 /** Snap inches to nearest 0.1 using integer tenths (avoids 0.1 float drift). */
@@ -82,25 +139,25 @@ function formatInchesDecimal(value) {
 }
 
 /**
- * Round to nearest 1/32" and format as a reduced imperial fraction.
- * Conversion is integer-based so every k/32" round-trips exactly.
+ * Round to nearest 1/denom" and format as a reduced imperial fraction.
+ * Conversion is integer-based so every k/denom" round-trips exactly.
  */
-function formatInchesFraction(value) {
+function formatInchesFraction(value, denom = 32) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '0"';
 
   const sign = n < 0 ? "-" : "";
-  const thirtySeconds = toThirtySeconds(Math.abs(n));
-  const whole = Math.floor(thirtySeconds / 32);
-  let numerator = thirtySeconds % 32;
+  const units = toFractionUnits(Math.abs(n), denom);
+  const whole = Math.floor(units / denom);
+  let numerator = units % denom;
 
   if (numerator === 0) {
     return `${sign}${whole}"`;
   }
 
-  const g = gcdInt(numerator, 32);
+  const g = gcdInt(numerator, denom);
   numerator /= g;
-  const denominator = 32 / g;
+  const denominator = denom / g;
 
   if (whole === 0) {
     return `${sign}${numerator}/${denominator}"`;
@@ -108,16 +165,21 @@ function formatInchesFraction(value) {
   return `${sign}${whole} ${numerator}/${denominator}"`;
 }
 
-function formatInches(value) {
+function formatDimValue(value, denom = 32) {
   return inchFormatMode() === "fraction"
-    ? formatInchesFraction(value)
+    ? formatInchesFraction(value, denom)
     : formatInchesDecimal(value);
 }
 
+/** Canvas labels always use 1/32" precision in fraction mode. */
+function formatInches(value) {
+  return formatDimValue(value, 32);
+}
+
 /**
- * Nudge a dimension slider by 1/32" (fraction mode) or 0.1" (decimal mode).
+ * Nudge a dimension slider by 1/denom" (fraction mode) or 0.1" (decimal mode).
  */
-function nudgeDimension(name, direction) {
+function nudgeDimension(name, direction, fractionDenom = 32) {
   const input = form.elements[name];
   if (!input) return;
 
@@ -127,7 +189,7 @@ function nudgeDimension(name, direction) {
   let next;
 
   if (inchFormatMode() === "fraction") {
-    next = fromThirtySeconds(toThirtySeconds(input.value) + dir);
+    next = fromFractionUnits(toFractionUnits(input.value, fractionDenom) + dir, fractionDenom);
   } else {
     next = fromTenths(toTenths(input.value) + dir);
   }
@@ -139,30 +201,30 @@ function nudgeDimension(name, direction) {
 }
 
 function drawDimensionLabel(x, y, label, vertical = false, color = "#111") {
-  ctx.fillStyle = color;
-  ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
+  activeCtx.fillStyle = color;
+  activeCtx.font = "12px ui-sans-serif, system-ui, sans-serif";
+  activeCtx.textAlign = "center";
+  activeCtx.textBaseline = "middle";
   if (vertical) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText(label, 0, 0);
-    ctx.restore();
+    activeCtx.save();
+    activeCtx.translate(x, y);
+    activeCtx.rotate(-Math.PI / 2);
+    activeCtx.fillText(label, 0, 0);
+    activeCtx.restore();
   } else {
-    ctx.fillText(label, x, y);
+    activeCtx.fillText(label, x, y);
   }
 }
 
 function drawDimensionLine(x1, y1, x2, y2, label, offsetX, offsetY, color = "#111") {
   const tick = 5;
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = 0.75;
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.stroke();
+  activeCtx.strokeStyle = color;
+  activeCtx.fillStyle = color;
+  activeCtx.lineWidth = 0.75;
+  activeCtx.beginPath();
+  activeCtx.moveTo(x1, y1);
+  activeCtx.lineTo(x2, y2);
+  activeCtx.stroke();
 
   const dx = x2 - x1;
   const dy = y2 - y1;
@@ -170,12 +232,12 @@ function drawDimensionLine(x1, y1, x2, y2, label, offsetX, offsetY, color = "#11
   const nx = (-dy / len) * tick;
   const ny = (dx / len) * tick;
 
-  ctx.beginPath();
-  ctx.moveTo(x1 - nx / 2, y1 - ny / 2);
-  ctx.lineTo(x1 + nx / 2, y1 + ny / 2);
-  ctx.moveTo(x2 - nx / 2, y2 - ny / 2);
-  ctx.lineTo(x2 + nx / 2, y2 + ny / 2);
-  ctx.stroke();
+  activeCtx.beginPath();
+  activeCtx.moveTo(x1 - nx / 2, y1 - ny / 2);
+  activeCtx.lineTo(x1 + nx / 2, y1 + ny / 2);
+  activeCtx.moveTo(x2 - nx / 2, y2 - ny / 2);
+  activeCtx.lineTo(x2 + nx / 2, y2 + ny / 2);
+  activeCtx.stroke();
 
   drawDimensionLabel(
     (x1 + x2) / 2 + offsetX,
@@ -672,29 +734,114 @@ function layoutLabel(layout) {
   return `${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${orientation})`;
 }
 
-function drawPreview() {
+function readSharedDims() {
   const widthIn = Number(form.elements.artworkWidth.value);
   const heightIn = Number(form.elements.artworkHeight.value);
   const depthIn = Number(form.elements.artworkDepth.value);
   const edgeIn = Math.max(0, Number(form.elements.edgePadding.value) || 0);
   const frontIn = Math.max(0, Number(form.elements.frontPadding.value) || 0);
   const backIn = Math.max(0, Number(form.elements.backPadding.value) || 0);
+  // Thickness is applied to the lid pattern when "Expand lid for cardboard thickness" is on.
+  const thicknessIn = Math.max(
+    0,
+    Number(form.elements.cardboardThickness?.value) || DEFAULT_THICKNESS
+  );
   const sheetW = Math.max(0.01, Number(sheetWidthInput.value) || DEFAULT_SHEET_WIDTH);
   const sheetH = Math.max(0.01, Number(sheetHeightInput.value) || DEFAULT_SHEET_HEIGHT);
-  const preferred =
-    form.elements.sheetOrientation.value === "vertical" ? "vertical" : "horizontal";
-  const override = Boolean(form.elements.overrideOrientation?.checked);
-  const optimize = Boolean(form.elements.optimizePerpendicular?.checked);
-  const centerHorizontal = Boolean(form.elements.centerHorizontal?.checked);
-  const centerVertical = Boolean(form.elements.centerVertical?.checked);
-  const showSheetDimensions = Boolean(form.elements.showSheetDimensions?.checked);
 
   const outerW = widthIn + edgeIn * 2;
   const outerH = heightIn + edgeIn * 2;
   const wallDepth = depthIn + frontIn + backIn;
-
   const patternW = outerW + wallDepth * 2;
   const patternH = outerH + wallDepth * 2;
+
+  return {
+    widthIn,
+    heightIn,
+    depthIn,
+    edgeIn,
+    frontIn,
+    backIn,
+    thicknessIn,
+    sheetW,
+    sheetH,
+    outerW,
+    outerH,
+    wallDepth,
+    patternW,
+    patternH,
+  };
+}
+
+/**
+ * Lid fits over the base: expand the center panel by 2× thickness and each
+ * side flap by 1× thickness when enabled.
+ */
+function lidGeometryFromShared(shared, expandForThickness) {
+  if (!expandForThickness || shared.thicknessIn <= FIT_EPS) {
+    return {
+      outerW: shared.outerW,
+      outerH: shared.outerH,
+      wallDepth: shared.wallDepth,
+      patternW: shared.patternW,
+      patternH: shared.patternH,
+    };
+  }
+
+  const t = shared.thicknessIn;
+  const outerW = shared.outerW + 2 * t;
+  const outerH = shared.outerH + 2 * t;
+  const wallDepth = shared.wallDepth + t;
+  return {
+    outerW,
+    outerH,
+    wallDepth,
+    patternW: outerW + wallDepth * 2,
+    patternH: outerH + wallDepth * 2,
+  };
+}
+
+function lidExpandForThicknessEnabled() {
+  return Boolean(form.elements.lidExpandForThickness?.checked);
+}
+
+function readSheetLayoutControls(prefix) {
+  const preferred =
+    form.elements[`${prefix}SheetOrientation`]?.value === "vertical"
+      ? "vertical"
+      : "horizontal";
+  return {
+    preferred,
+    override: Boolean(form.elements[`${prefix}OverrideOrientation`]?.checked),
+    optimize: Boolean(form.elements[`${prefix}OptimizePerpendicular`]?.checked),
+    centerHorizontal: Boolean(form.elements[`${prefix}CenterHorizontal`]?.checked),
+    centerVertical: Boolean(form.elements[`${prefix}CenterVertical`]?.checked),
+    showSheetDimensions: Boolean(form.elements[`${prefix}ShowSheetDimensions`]?.checked),
+  };
+}
+
+function drawPartPreview(canvas, partCtx, opts) {
+  const {
+    widthIn,
+    heightIn,
+    edgeIn,
+    sheetW,
+    sheetH,
+    outerW,
+    outerH,
+    wallDepth,
+    patternW,
+    patternH,
+    preferred,
+    override,
+    optimize,
+    centerHorizontal,
+    centerVertical,
+    showSheetDimensions,
+    showArtworkInterior,
+  } = opts;
+
+  activeCtx = partCtx;
 
   const layout = resolveSheetLayout(
     patternW,
@@ -732,11 +879,11 @@ function drawPreview() {
   canvas.width = Math.round(cssWidth * dpr);
   canvas.height = Math.round(cssHeight * dpr);
   canvas.style.height = `${cssHeight}px`;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  partCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  ctx.clearRect(0, 0, cssWidth, cssHeight);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, cssWidth, cssHeight);
+  partCtx.clearRect(0, 0, cssWidth, cssHeight);
+  partCtx.fillStyle = "#fff";
+  partCtx.fillRect(0, 0, cssWidth, cssHeight);
 
   const padLeft = 88;
   const padRight = 72;
@@ -770,71 +917,71 @@ function drawPreview() {
   const ay = oy + edgePx;
 
   // Cardboard sheets — thin red outlines, edges abut exactly (no gap/overlap)
-  ctx.strokeStyle = "#c00";
-  ctx.lineWidth = 0.75;
-  ctx.setLineDash([]);
+  partCtx.strokeStyle = "#c00";
+  partCtx.lineWidth = 0.75;
+  partCtx.setLineDash([]);
   for (const sheet of sheets) {
     const sx = toX(sheet.x);
     const sy = toY(sheet.y);
     const sw = sheet.w * scale;
     const sh = sheet.h * scale;
-    ctx.strokeRect(sx + 0.5, sy + 0.5, sw, sh);
+    partCtx.strokeRect(sx + 0.5, sy + 0.5, sw, sh);
   }
 
   // Containing bounds — gray dotted corners only
   if (wallDepth > 0) {
-    ctx.strokeStyle = "#999";
-    ctx.lineWidth = 0.75;
-    ctx.setLineDash([1.5, 2.5]);
-    ctx.beginPath();
-    ctx.moveTo(patternX, oy);
-    ctx.lineTo(patternX, patternY);
-    ctx.lineTo(ox, patternY);
-    ctx.moveTo(ox + outerBoxW, patternY);
-    ctx.lineTo(patternRight, patternY);
-    ctx.lineTo(patternRight, oy);
-    ctx.moveTo(patternRight, oy + outerBoxH);
-    ctx.lineTo(patternRight, patternBottom);
-    ctx.lineTo(ox + outerBoxW, patternBottom);
-    ctx.moveTo(ox, patternBottom);
-    ctx.lineTo(patternX, patternBottom);
-    ctx.lineTo(patternX, oy + outerBoxH);
-    ctx.stroke();
+    partCtx.strokeStyle = "#999";
+    partCtx.lineWidth = 0.75;
+    partCtx.setLineDash([1.5, 2.5]);
+    partCtx.beginPath();
+    partCtx.moveTo(patternX, oy);
+    partCtx.lineTo(patternX, patternY);
+    partCtx.lineTo(ox, patternY);
+    partCtx.moveTo(ox + outerBoxW, patternY);
+    partCtx.lineTo(patternRight, patternY);
+    partCtx.lineTo(patternRight, oy);
+    partCtx.moveTo(patternRight, oy + outerBoxH);
+    partCtx.lineTo(patternRight, patternBottom);
+    partCtx.lineTo(ox + outerBoxW, patternBottom);
+    partCtx.moveTo(ox, patternBottom);
+    partCtx.lineTo(patternX, patternBottom);
+    partCtx.lineTo(patternX, oy + outerBoxH);
+    partCtx.stroke();
   }
 
-  ctx.strokeStyle = "#111";
-  ctx.lineWidth = 0.75;
-  ctx.setLineDash([]);
+  partCtx.strokeStyle = "#111";
+  partCtx.lineWidth = 0.75;
+  partCtx.setLineDash([]);
 
   if (wallDepth > 0) {
-    ctx.beginPath();
-    ctx.moveTo(ox, patternY);
-    ctx.lineTo(ox + outerBoxW, patternY);
-    ctx.lineTo(ox + outerBoxW, oy);
-    ctx.lineTo(ox + outerBoxW + wallPx, oy);
-    ctx.lineTo(ox + outerBoxW + wallPx, oy + outerBoxH);
-    ctx.lineTo(ox + outerBoxW, oy + outerBoxH);
-    ctx.lineTo(ox + outerBoxW, oy + outerBoxH + wallPx);
-    ctx.lineTo(ox, oy + outerBoxH + wallPx);
-    ctx.lineTo(ox, oy + outerBoxH);
-    ctx.lineTo(patternX, oy + outerBoxH);
-    ctx.lineTo(patternX, oy);
-    ctx.lineTo(ox, oy);
-    ctx.closePath();
-    ctx.stroke();
+    partCtx.beginPath();
+    partCtx.moveTo(ox, patternY);
+    partCtx.lineTo(ox + outerBoxW, patternY);
+    partCtx.lineTo(ox + outerBoxW, oy);
+    partCtx.lineTo(ox + outerBoxW + wallPx, oy);
+    partCtx.lineTo(ox + outerBoxW + wallPx, oy + outerBoxH);
+    partCtx.lineTo(ox + outerBoxW, oy + outerBoxH);
+    partCtx.lineTo(ox + outerBoxW, oy + outerBoxH + wallPx);
+    partCtx.lineTo(ox, oy + outerBoxH + wallPx);
+    partCtx.lineTo(ox, oy + outerBoxH);
+    partCtx.lineTo(patternX, oy + outerBoxH);
+    partCtx.lineTo(patternX, oy);
+    partCtx.lineTo(ox, oy);
+    partCtx.closePath();
+    partCtx.stroke();
 
-    ctx.setLineDash([5, 4]);
-    ctx.strokeRect(ox + 0.5, oy + 0.5, outerBoxW, outerBoxH);
+    partCtx.setLineDash([5, 4]);
+    partCtx.strokeRect(ox + 0.5, oy + 0.5, outerBoxW, outerBoxH);
   } else {
-    ctx.strokeRect(ox + 0.5, oy + 0.5, outerBoxW, outerBoxH);
+    partCtx.strokeRect(ox + 0.5, oy + 0.5, outerBoxW, outerBoxH);
   }
 
-  if (edgeIn > 0) {
-    ctx.setLineDash([1.5, 2.5]);
-    ctx.strokeRect(ax + 0.5, ay + 0.5, artBoxW, artBoxH);
+  if (showArtworkInterior && edgeIn > 0) {
+    partCtx.setLineDash([1.5, 2.5]);
+    partCtx.strokeRect(ax + 0.5, ay + 0.5, artBoxW, artBoxH);
   }
 
-  ctx.setLineDash([]);
+  partCtx.setLineDash([]);
 
   const dimGap = 28;
   const containDimGap = 58;
@@ -933,34 +1080,98 @@ function drawPreview() {
   if (sheets.length > 1) {
     const gridLeft = toX(Math.min(...sheets.map((s) => s.x)));
     const gridTop = toY(Math.min(...sheets.map((s) => s.y)));
-    ctx.fillStyle = "#c00";
-    ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.fillText(layoutLabel(layout), gridLeft, gridTop - 16);
+    partCtx.fillStyle = "#c00";
+    partCtx.font = "11px ui-sans-serif, system-ui, sans-serif";
+    partCtx.textAlign = "left";
+    partCtx.textBaseline = "top";
+    partCtx.fillText(layoutLabel(layout), gridLeft, gridTop - 16);
   }
 
-  // Artwork size labels — inside the dotted rect, text only (no dimension brackets)
-  const artLabelInset = 16;
-  drawDimensionLabel(
-    ax + artBoxW / 2,
-    ay + artBoxH - artLabelInset,
-    formatInches(widthIn)
-  );
-  drawDimensionLabel(
-    ax + artLabelInset,
-    ay + artBoxH / 2,
-    formatInches(heightIn),
-    true
-  );
+  if (showArtworkInterior) {
+    // Artwork size labels — inside the dotted rect, text only (no dimension brackets)
+    const artLabelInset = 16;
+    drawDimensionLabel(
+      ax + artBoxW / 2,
+      ay + artBoxH - artLabelInset,
+      formatInches(widthIn)
+    );
+    drawDimensionLabel(
+      ax + artLabelInset,
+      ay + artBoxH / 2,
+      formatInches(heightIn),
+      true
+    );
 
-  if (edgeIn > 0 && edgePx >= 14) {
-    ctx.fillStyle = "#111";
-    ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(formatInches(edgeIn), ax + artBoxW / 2, oy + edgePx / 2);
+    if (edgeIn > 0 && edgePx >= 14) {
+      partCtx.fillStyle = "#111";
+      partCtx.font = "11px ui-sans-serif, system-ui, sans-serif";
+      partCtx.textAlign = "center";
+      partCtx.textBaseline = "middle";
+      partCtx.fillText(formatInches(edgeIn), ax + artBoxW / 2, oy + edgePx / 2);
+    }
   }
+
+  return layout;
+}
+
+function drawPreview() {
+  const shared = readSharedDims();
+  const baseControls = readSheetLayoutControls("base");
+  const lidControls = lidLayoutLocked
+    ? baseControls
+    : readSheetLayoutControls("lid");
+  const lidGeom = lidGeometryFromShared(shared, lidExpandForThicknessEnabled());
+
+  drawPartPreview(baseCanvas, baseCtx, {
+    ...shared,
+    ...baseControls,
+    showArtworkInterior: true,
+  });
+  drawPartPreview(lidCanvas, lidCtx, {
+    ...shared,
+    ...lidControls,
+    ...lidGeom,
+    showArtworkInterior: false,
+  });
+}
+
+function syncOrientationOverride(prefix) {
+  const override = Boolean(form.elements[`${prefix}OverrideOrientation`]?.checked);
+  document.querySelectorAll(`input[name="${prefix}SheetOrientation"]`).forEach((input) => {
+    input.disabled = !override;
+  });
+  if (prefix === "base" && lidLayoutLocked) {
+    copyBaseLayoutToLid();
+  }
+  drawPreview();
+}
+
+function afterBaseLayoutChange() {
+  if (lidLayoutLocked) copyBaseLayoutToLid();
+  drawPreview();
+}
+
+function resetPartLayoutControls(prefix) {
+  form.elements[`${prefix}SheetOrientation`].value = "horizontal";
+  form.elements[`${prefix}OverrideOrientation`].checked = false;
+  form.elements[`${prefix}OptimizePerpendicular`].checked = true;
+  form.elements[`${prefix}CenterHorizontal`].checked = false;
+  form.elements[`${prefix}CenterVertical`].checked = false;
+  form.elements[`${prefix}ShowSheetDimensions`].checked = false;
+}
+
+function wirePartLayoutControls(prefix, onChange = drawPreview) {
+  document.querySelectorAll(`input[name="${prefix}SheetOrientation"]`).forEach((input) => {
+    input.addEventListener("change", onChange);
+  });
+
+  form.elements[`${prefix}OverrideOrientation`].addEventListener("change", () => {
+    syncOrientationOverride(prefix);
+  });
+  form.elements[`${prefix}OptimizePerpendicular`].addEventListener("change", onChange);
+  form.elements[`${prefix}CenterHorizontal`].addEventListener("change", onChange);
+  form.elements[`${prefix}CenterVertical`].addEventListener("change", onChange);
+  form.elements[`${prefix}ShowSheetDimensions`].addEventListener("change", onChange);
 }
 
 sliderNames.forEach((name) => {
@@ -977,9 +1188,6 @@ form.elements.frontPadding.addEventListener("input", drawPreview);
 form.elements.backPadding.addEventListener("input", drawPreview);
 sheetWidthInput.addEventListener("input", drawPreview);
 sheetHeightInput.addEventListener("input", drawPreview);
-document.querySelectorAll('input[name="sheetOrientation"]').forEach((input) => {
-  input.addEventListener("change", drawPreview);
-});
 
 document.querySelectorAll('input[name="inchFormat"]').forEach((input) => {
   input.addEventListener("change", () => {
@@ -990,91 +1198,81 @@ document.querySelectorAll('input[name="inchFormat"]').forEach((input) => {
 
 document.querySelectorAll(".nudge").forEach((button) => {
   button.addEventListener("click", () => {
-    nudgeDimension(button.dataset.dim, Number(button.dataset.dir));
+    nudgeDimension(
+      button.dataset.dim,
+      Number(button.dataset.dir),
+      Number(button.dataset.step) || 32
+    );
   });
 });
 
-const overrideOrientationInput = document.getElementById("overrideOrientation");
-const optimizePerpendicularInput = document.getElementById("optimizePerpendicular");
-const centerHorizontalInput = document.getElementById("centerHorizontal");
-const centerVerticalInput = document.getElementById("centerVertical");
-const showSheetDimensionsInput = document.getElementById("showSheetDimensions");
-
-function syncOrientationOverride() {
-  const override = overrideOrientationInput.checked;
-  document.querySelectorAll('input[name="sheetOrientation"]').forEach((input) => {
-    input.disabled = !override;
-  });
-  drawPreview();
-}
-
-overrideOrientationInput.addEventListener("change", syncOrientationOverride);
-optimizePerpendicularInput.addEventListener("change", drawPreview);
-centerHorizontalInput.addEventListener("change", drawPreview);
-centerVerticalInput.addEventListener("change", drawPreview);
-showSheetDimensionsInput.addEventListener("change", drawPreview);
+wirePartLayoutControls("base", afterBaseLayoutChange);
+wirePartLayoutControls("lid");
 
 lockBtn.addEventListener("click", () => {
   setSheetLocked(!sheetLocked);
 });
 
+lidLayoutLockBtn.addEventListener("click", () => {
+  setLidLayoutLocked(!lidLayoutLocked);
+});
+
+form.elements.lidExpandForThickness.addEventListener("change", drawPreview);
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
 
-  const data = new FormData(form);
-  const values = {
-    artworkWidth: Number(data.get("artworkWidth")),
-    artworkHeight: Number(data.get("artworkHeight")),
-    artworkDepth: Number(data.get("artworkDepth")),
-    edgePadding: Number(data.get("edgePadding")),
-    frontPadding: Number(data.get("frontPadding")),
-    backPadding: Number(data.get("backPadding")),
-    sheetWidth: Number(sheetWidthInput.value),
-    sheetHeight: Number(sheetHeightInput.value),
-    sheetOrientation: data.get("sheetOrientation") || "horizontal",
-    overrideOrientation: Boolean(data.get("overrideOrientation")),
-    optimizePerpendicular: Boolean(data.get("optimizePerpendicular")),
-    centerHorizontal: Boolean(data.get("centerHorizontal")),
-    centerVertical: Boolean(data.get("centerVertical")),
-    boxType: data.get("boxType") || "bottom-lid",
-  };
+  const shared = readSharedDims();
+  const baseControls = readSheetLayoutControls("base");
+  const lidControls = lidLayoutLocked
+    ? baseControls
+    : readSheetLayoutControls("lid");
+  const expandLid = lidExpandForThicknessEnabled();
+  const lidGeom = lidGeometryFromShared(shared, expandLid);
 
-  const patternW =
-    values.artworkWidth +
-    values.edgePadding * 2 +
-    (values.artworkDepth + values.frontPadding + values.backPadding) * 2;
-  const patternH =
-    values.artworkHeight +
-    values.edgePadding * 2 +
-    (values.artworkDepth + values.frontPadding + values.backPadding) * 2;
-  const layout = resolveSheetLayout(
-    patternW,
-    patternH,
-    values.sheetWidth,
-    values.sheetHeight,
-    values.sheetOrientation,
-    values.overrideOrientation,
-    values.optimizePerpendicular
+  const baseLayout = resolveSheetLayout(
+    shared.patternW,
+    shared.patternH,
+    shared.sheetW,
+    shared.sheetH,
+    baseControls.preferred,
+    baseControls.override,
+    baseControls.optimize
+  );
+  const lidLayout = resolveSheetLayout(
+    lidGeom.patternW,
+    lidGeom.patternH,
+    shared.sheetW,
+    shared.sheetH,
+    lidControls.preferred,
+    lidControls.override,
+    lidControls.optimize
   );
 
-  const boxTypeLabel =
-    values.boxType === "clamshell" ? "Clamshell" : "Bottom / lid";
-
-  const anchorParts = [];
-  if (values.centerHorizontal) anchorParts.push("horizontal center");
-  if (values.centerVertical) anchorParts.push("vertical center");
-  const anchorLabel = anchorParts.length ? anchorParts.join(" + ") : "bottom-right";
+  function anchorLabel(controls) {
+    const parts = [];
+    if (controls.centerHorizontal) parts.push("horizontal center");
+    if (controls.centerVertical) parts.push("vertical center");
+    return parts.length ? parts.join(" + ") : "bottom-right";
+  }
 
   summary.textContent = [
-    `Box type: ${boxTypeLabel}`,
-    `Artwork: ${values.artworkWidth} × ${values.artworkHeight} × ${values.artworkDepth} in`,
-    `Edge padding: ${values.edgePadding} in`,
-    `Front padding: ${values.frontPadding} in`,
-    `Back padding: ${values.backPadding} in`,
-    `Sheet: ${values.sheetWidth} × ${values.sheetHeight} in`,
-    `Orientation: ${values.overrideOrientation ? "manual" : "automatic"} → ${layout.baseOrientation || layout.orientation}`,
-    `Sheet anchor: ${anchorLabel}`,
-    `Fit: ${layoutLabel(layout)}`,
+    `Box type: Lid & Base`,
+    `Artwork: ${shared.widthIn} × ${shared.heightIn} × ${shared.depthIn} in`,
+    `Edge padding: ${shared.edgeIn} in`,
+    `Front padding: ${shared.frontIn} in`,
+    `Back padding: ${shared.backIn} in`,
+    `Cardboard thickness: ${shared.thicknessIn} in`,
+    `Lid thickness expand: ${expandLid ? "on" : "off"}`,
+    `Sheet: ${shared.sheetW} × ${shared.sheetH} in`,
+    "",
+    `Base orientation: ${baseControls.override ? "manual" : "automatic"} → ${baseLayout.baseOrientation || baseLayout.orientation}`,
+    `Base sheet anchor: ${anchorLabel(baseControls)}`,
+    `Base fit: ${layoutLabel(baseLayout)}`,
+    "",
+    `Lid orientation: ${lidLayoutLocked ? "locked to base" : lidControls.override ? "manual" : "automatic"} → ${lidLayout.baseOrientation || lidLayout.orientation}`,
+    `Lid sheet anchor: ${anchorLabel(lidControls)}`,
+    `Lid fit: ${layoutLabel(lidLayout)}`,
     "",
     "(Cutting diagrams not yet generated.)",
   ].join("\n");
@@ -1084,19 +1282,19 @@ form.addEventListener("submit", (event) => {
 
 form.addEventListener("reset", () => {
   requestAnimationFrame(() => {
+    form.elements.cardboardThickness.value = DEFAULT_THICKNESS;
     sliderNames.forEach(syncSlider);
     sheetWidthInput.value = DEFAULT_SHEET_WIDTH;
     sheetHeightInput.value = DEFAULT_SHEET_HEIGHT;
     setSheetLocked(true);
     form.elements.boxType.value = "bottom-lid";
-    form.elements.sheetOrientation.value = "horizontal";
     form.elements.inchFormat.value = "decimal";
-    overrideOrientationInput.checked = false;
-    optimizePerpendicularInput.checked = true;
-    centerHorizontalInput.checked = false;
-    centerVerticalInput.checked = false;
-    showSheetDimensionsInput.checked = false;
-    syncOrientationOverride();
+    resetPartLayoutControls("base");
+    resetPartLayoutControls("lid");
+    form.elements.lidExpandForThickness.checked = true;
+    setLidLayoutLocked(true);
+    syncOrientationOverride("base");
+    syncOrientationOverride("lid");
   });
   output.hidden = true;
   summary.textContent = "";
@@ -1105,4 +1303,6 @@ form.addEventListener("reset", () => {
 window.addEventListener("resize", drawPreview);
 
 setSheetLocked(true);
-syncOrientationOverride();
+setLidLayoutLocked(true);
+syncOrientationOverride("base");
+syncOrientationOverride("lid");

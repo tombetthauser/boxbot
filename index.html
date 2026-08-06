@@ -23,8 +23,8 @@
             <div class="value-controls">
               <span class="value"><span id="artworkWidth-val">24"</span></span>
               <div class="nudge-btns">
-                <button type="button" class="nudge" data-dim="artworkWidth" data-dir="1" aria-label="Increase width">▲</button>
-                <button type="button" class="nudge" data-dim="artworkWidth" data-dir="-1" aria-label="Decrease width">▼</button>
+                <button type="button" class="nudge" data-dim="artworkWidth" data-dir="1" data-step="32" aria-label="Increase width">▲</button>
+                <button type="button" class="nudge" data-dim="artworkWidth" data-dir="-1" data-step="32" aria-label="Decrease width">▼</button>
               </div>
             </div>
           </div>
@@ -34,8 +34,8 @@
             <div class="value-controls">
               <span class="value"><span id="artworkHeight-val">36"</span></span>
               <div class="nudge-btns">
-                <button type="button" class="nudge" data-dim="artworkHeight" data-dir="1" aria-label="Increase height">▲</button>
-                <button type="button" class="nudge" data-dim="artworkHeight" data-dir="-1" aria-label="Decrease height">▼</button>
+                <button type="button" class="nudge" data-dim="artworkHeight" data-dir="1" data-step="32" aria-label="Increase height">▲</button>
+                <button type="button" class="nudge" data-dim="artworkHeight" data-dir="-1" data-step="32" aria-label="Decrease height">▼</button>
               </div>
             </div>
           </div>
@@ -45,8 +45,8 @@
             <div class="value-controls">
               <span class="value"><span id="artworkDepth-val">2"</span></span>
               <div class="nudge-btns">
-                <button type="button" class="nudge" data-dim="artworkDepth" data-dir="1" aria-label="Increase depth">▲</button>
-                <button type="button" class="nudge" data-dim="artworkDepth" data-dir="-1" aria-label="Decrease depth">▼</button>
+                <button type="button" class="nudge" data-dim="artworkDepth" data-dir="1" data-step="32" aria-label="Increase depth">▲</button>
+                <button type="button" class="nudge" data-dim="artworkDepth" data-dir="-1" data-step="32" aria-label="Decrease depth">▼</button>
               </div>
             </div>
           </div>
@@ -58,7 +58,7 @@
             </label>
             <label>
               <input type="radio" name="inchFormat" value="fraction" />
-              Fractions (1/32″)
+              Fractions
             </label>
           </div>
         </section>
@@ -91,17 +91,33 @@
         </section>
 
         <section>
+          <h2>Cardboard thickness</h2>
+          <div class="field">
+            <label for="cardboardThickness">Thickness</label>
+            <input type="range" id="cardboardThickness" name="cardboardThickness" min="0.0625" max="1" step="any" value="0.125" />
+            <div class="value-controls">
+              <span class="value"><span id="cardboardThickness-val">0.125"</span></span>
+              <div class="nudge-btns">
+                <button type="button" class="nudge" data-dim="cardboardThickness" data-dir="1" data-step="64" aria-label="Increase thickness">▲</button>
+                <button type="button" class="nudge" data-dim="cardboardThickness" data-dir="-1" data-step="64" aria-label="Decrease thickness">▼</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section>
           <h2>Box type</h2>
           <div class="radios">
+            <label class="locked-choice">
+              <input type="radio" checked disabled />
+              Lid &amp; Base
+            </label>
             <label class="disabled">
-              <input type="radio" name="boxType" value="clamshell" disabled />
+              <input type="radio" disabled />
               Clamshell <span class="soon">(soon)</span>
             </label>
-            <label>
-              <input type="radio" name="boxType" value="bottom-lid" checked />
-              Bottom / lid
-            </label>
           </div>
+          <input type="hidden" name="boxType" value="bottom-lid" />
         </section>
 
         <section>
@@ -128,38 +144,90 @@
               </span>
             </label>
           </div>
-          <div class="sheet-orientation">
-            <label class="override-label">
-              <input type="checkbox" name="optimizePerpendicular" id="optimizePerpendicular" checked />
-              Optimize with perpendicular sheets
-            </label>
-            <label class="override-label">
-              <input type="checkbox" name="overrideOrientation" id="overrideOrientation" />
-              Override automatic orientation
-            </label>
-            <div class="radios" id="orientation-radios">
-              <span class="orient-label">Orientation</span>
-              <label>
-                <input type="radio" name="sheetOrientation" value="horizontal" checked disabled />
-                Horizontal
+
+          <div class="sheet-part">
+            <h3>Box Base layout</h3>
+            <div class="sheet-orientation">
+              <label class="override-label">
+                <input type="checkbox" name="baseOptimizePerpendicular" id="baseOptimizePerpendicular" checked />
+                Optimize with perpendicular sheets
               </label>
-              <label>
-                <input type="radio" name="sheetOrientation" value="vertical" disabled />
-                Vertical
+              <label class="override-label">
+                <input type="checkbox" name="baseOverrideOrientation" id="baseOverrideOrientation" />
+                Override automatic orientation
+              </label>
+              <div class="radios" id="base-orientation-radios">
+                <span class="orient-label">Orientation</span>
+                <label>
+                  <input type="radio" name="baseSheetOrientation" value="horizontal" checked disabled />
+                  Horizontal
+                </label>
+                <label>
+                  <input type="radio" name="baseSheetOrientation" value="vertical" disabled />
+                  Vertical
+                </label>
+              </div>
+              <label class="override-label">
+                <input type="checkbox" name="baseCenterHorizontal" id="baseCenterHorizontal" />
+                Center sheets horizontally
+              </label>
+              <label class="override-label">
+                <input type="checkbox" name="baseCenterVertical" id="baseCenterVertical" />
+                Center sheets vertically
+              </label>
+              <label class="override-label">
+                <input type="checkbox" name="baseShowSheetDimensions" id="baseShowSheetDimensions" />
+                Show sheet dimensions
               </label>
             </div>
-            <label class="override-label">
-              <input type="checkbox" name="centerHorizontal" id="centerHorizontal" />
-              Center sheets horizontally
+          </div>
+
+          <div class="sheet-part">
+            <div class="section-head">
+              <h3>Box Lid layout</h3>
+              <button type="button" id="lid-layout-lock" class="lock-btn" aria-pressed="true" title="Unlock to customize lid layout">
+                <span class="lock-icon" aria-hidden="true">🔒</span>
+                <span class="lock-label">Locked</span>
+              </button>
+            </div>
+            <p class="lid-lock-hint" id="lid-layout-hint">Matching Box Base</p>
+            <label class="override-label lid-thickness-toggle">
+              <input type="checkbox" name="lidExpandForThickness" id="lidExpandForThickness" checked />
+              Expand lid for cardboard thickness
             </label>
-            <label class="override-label">
-              <input type="checkbox" name="centerVertical" id="centerVertical" />
-              Center sheets vertically
-            </label>
-            <label class="override-label">
-              <input type="checkbox" name="showSheetDimensions" id="showSheetDimensions" />
-              Show sheet dimensions
-            </label>
+            <div class="sheet-orientation lid-layout-dropdown" id="lid-layout-controls" hidden>
+              <label class="override-label">
+                <input type="checkbox" name="lidOptimizePerpendicular" id="lidOptimizePerpendicular" checked />
+                Optimize with perpendicular sheets
+              </label>
+              <label class="override-label">
+                <input type="checkbox" name="lidOverrideOrientation" id="lidOverrideOrientation" />
+                Override automatic orientation
+              </label>
+              <div class="radios" id="lid-orientation-radios">
+                <span class="orient-label">Orientation</span>
+                <label>
+                  <input type="radio" name="lidSheetOrientation" value="horizontal" checked disabled />
+                  Horizontal
+                </label>
+                <label>
+                  <input type="radio" name="lidSheetOrientation" value="vertical" disabled />
+                  Vertical
+                </label>
+              </div>
+              <label class="override-label">
+                <input type="checkbox" name="lidCenterHorizontal" id="lidCenterHorizontal" />
+                Center sheets horizontally
+              </label>
+              <label class="override-label">
+                <input type="checkbox" name="lidCenterVertical" id="lidCenterVertical" />
+                Center sheets vertically
+              </label>
+              <label class="override-label">
+                <input type="checkbox" name="lidShowSheetDimensions" id="lidShowSheetDimensions" />
+                Show sheet dimensions
+              </label>
+            </div>
           </div>
         </section>
 
@@ -169,10 +237,16 @@
         </div>
       </form>
 
-      <section id="preview">
-        <h2>Artwork preview</h2>
-        <canvas id="artwork-canvas" width="640" height="480" aria-label="Artwork size preview"></canvas>
-      </section>
+      <div id="previews">
+        <section id="preview-base">
+          <h2>Box Base</h2>
+          <canvas id="base-canvas" width="640" height="480" aria-label="Box base cutting preview"></canvas>
+        </section>
+        <section id="preview-lid">
+          <h2>Box Lid</h2>
+          <canvas id="lid-canvas" width="640" height="480" aria-label="Box lid cutting preview"></canvas>
+        </section>
+      </div>
     </div>
 
     <section id="output" hidden>
